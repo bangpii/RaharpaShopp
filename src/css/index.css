@@ -1,0 +1,87 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600;700&family=Poppins:wght@100;200;300;400;500;600;700;800;900&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+
+    html,
+    body {
+        @apply bg-[#FCE4EC] font-poppins text-gray-900;
+    }
+}
+
+@keyframes blink {
+
+    0%,
+    50% {
+        opacity: 1;
+    }
+
+    51%,
+    100% {
+        opacity: 0;
+    }
+}
+
+.animate-blink {
+    animation: blink 0.8s step-start infinite;
+}
+
+html {
+    scrollbar-width: thin;
+    scrollbar-color: #BA7630 #fdf2f8;
+}
+
+/* Untuk Webkit browsers (Chrome, Safari, Edge) */
+html::-webkit-scrollbar {
+    width: 10px;
+}
+
+html::-webkit-scrollbar-track {
+    background: #fdf2f8;
+    border-radius: 10px;
+}
+
+html::-webkit-scrollbar-thumb {
+    background: linear-gradient(to bottom, #BA7630, #be6812);
+    border-radius: 10px;
+    border: 2px solid #fdf2f8;
+}
+
+html::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(to bottom, #BA7630, #be6812);
+    transform: scale(1.1);
+    transition: all 0.3s ease;
+}
+
+/* Smooth scrolling untuk seluruh halaman */
+html {
+    scroll-behavior: smooth;
+}
+
+
+/* Custom Pink Scrollbar */
+.pink-scrollbar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.pink-scrollbar::-webkit-scrollbar-track {
+    background: #fdf2f8;
+    border-radius: 10px;
+}
+
+.pink-scrollbar::-webkit-scrollbar-thumb {
+    background: linear-gradient(to bottom, #BA7630, #be6812);
+    border-radius: 10px;
+}
+
+.pink-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(to bottom, #BA7630, #be6812);
+}
+
+/* Untuk Firefox */
+.pink-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #BA7630 #fdf2f8;
+}
