@@ -1,4 +1,4 @@
-// components/AkunUsers.jsx
+/// components/AkunUsers.jsx
 import React, { useState, useEffect } from 'react'
 import { 
   getAllUsers, 
@@ -12,7 +12,7 @@ import {
 } from '../../api/Api_AkunUsers'
 
 const AkunUsers = ({ onNavigate }) => {
-  const [selectedYear, setSelectedYear] = useState('2025')
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString())
   const [showYearPicker, setShowYearPicker] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
@@ -26,8 +26,8 @@ const AkunUsers = ({ onNavigate }) => {
   const [showUserDetail, setShowUserDetail] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [akunUsers, setAkunUsers] = useState([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [socket, setSocket] = useState(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [formLoading, setFormLoading] = useState(false)
 
   // Check screen size
   useEffect(() => {
@@ -50,13 +50,13 @@ const AkunUsers = ({ onNavigate }) => {
         setIsLoading(true)
         
         // Initialize socket
-        const userSocket = initializeAkunUsersSocket()
-        setSocket(userSocket)
+        initializeAkunUsersSocket()
         
         // Set callback for real-time updates
         setUsersUpdateCallback((users) => {
           console.log('🔄 Real-time update received in component:', users)
-          setAkunUsers(users)
+          // FIX: Pastikan users selalu array
+          setAkunUsers(Array.isArray(users) ? users : [])
         })
         
         // Load initial data
@@ -64,6 +64,7 @@ const AkunUsers = ({ onNavigate }) => {
         
       } catch (error) {
         console.error('❌ Error initializing data:', error)
+        setAkunUsers([]) // Set ke array kosong jika error
       } finally {
         setIsLoading(false)
       }
@@ -83,10 +84,12 @@ const AkunUsers = ({ onNavigate }) => {
     try {
       console.log('📥 Loading users data from backend...')
       const users = await getAllUsers()
-      setAkunUsers(users)
-      console.log('✅ Users data loaded successfully:', users.length)
+      // FIX: Pastikan users selalu array
+      setAkunUsers(Array.isArray(users) ? users : [])
+      console.log('✅ Users data loaded successfully:', Array.isArray(users) ? users.length : 0)
     } catch (error) {
       console.error('❌ Failed to load users data:', error)
+      setAkunUsers([]) // Set ke array kosong jika error
       alert('Gagal memuat data users. Silakan refresh halaman.')
     }
   }
@@ -102,81 +105,115 @@ const AkunUsers = ({ onNavigate }) => {
     loadUsersData()
   }
 
-  const years = ['2025', '2026', '2027', '2028', '2029', '2030']
+  // Generate years from 2020 to 2030
+  const years = Array.from({length: 11}, (_, i) => (2020 + i).toString())
 
-  const filteredUsers = akunUsers.filter(user =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user._id.includes(searchTerm)
-  )
+  // FIX: Pastikan akunUsers selalu array sebelum di-filter
+  const filteredUsers = Array.isArray(akunUsers) 
+    ? akunUsers.filter(user => 
+        user && 
+        user.name && 
+        user._id && 
+        (
+          user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          user._id.includes(searchTerm)
+        )
+      )
+    : []
 
-  // Filter users berdasarkan tahun yang dipilih
-  const usersByYear = filteredUsers.filter(user => {
-    const userYear = new Date(user.date).getFullYear().toString()
-    return userYear.includes(selectedYear)
-  })
+  // Filter users berdasarkan tahun yang dipilih - FIXED LOGIC
+  const usersByYear = Array.isArray(filteredUsers) 
+    ? filteredUsers.filter(user => {
+        if (!user || !user.date) return false
+        try {
+          const userYear = new Date(user.date).getFullYear().toString()
+          return userYear === selectedYear
+        } catch {
+          console.warn('Invalid date format for user:', user)
+          return false
+        }
+      })
+    : []
 
-  // Handle Tambah Data
+  // Handle Tambah Data - FIXED: Tidak menutup popup saat validasi
   const handleAddUser = async () => {
-    if (newUserName.trim() === '' || newUserDate === '') {
-      alert('Nama dan tanggal harus diisi')
-      return
+    if (newUserName.trim() === '') {
+      alert('Nama user harus diisi')
+      return // Return early tanpa menutup popup
+    }
+
+    if (newUserDate === '') {
+      alert('Tanggal bergabung harus diisi')
+      return // Return early tanpa menutup popup
     }
     
     try {
-      setIsLoading(true)
+      setFormLoading(true)
       
       const newUserData = {
-        name: newUserName,
+        name: newUserName.trim(),
         date: newUserDate
       }
       
       await addUser(newUserData)
       
+      // Reset form dan tutup popup hanya jika sukses
       setNewUserName('')
       setNewUserDate('')
       setShowAddForm(false)
       
-      // Data akan otomatis update via socket
       alert('User berhasil ditambahkan!')
       
     } catch (error) {
       console.error('❌ Error adding user:', error)
-      alert('Gagal menambahkan user: ' + error.message)
+      alert('Gagal menambahkan user: ' + (error.message || 'Unknown error'))
+      // Tetap biarkan popup terbuka agar user bisa memperbaiki input
     } finally {
-      setIsLoading(false)
+      setFormLoading(false)
     }
   }
 
-  // Handle Edit Data
+  // Handle Edit Data - FIXED: Tidak menutup popup saat validasi
   const handleEditUser = async () => {
-    if (editUserName.trim() === '' || editUserDate === '') {
-      alert('Nama dan tanggal harus diisi')
+    if (!selectedUser) {
+      alert('User tidak ditemukan')
       return
+    }
+
+    if (editUserName.trim() === '') {
+      alert('Nama user harus diisi')
+      return // Return early tanpa menutup popup
+    }
+
+    if (editUserDate === '') {
+      alert('Tanggal bergabung harus diisi')
+      return // Return early tanpa menutup popup
     }
     
     try {
-      setIsLoading(true)
+      setFormLoading(true)
       
       const updatedUserData = {
-        name: editUserName,
+        name: editUserName.trim(),
         date: editUserDate
       }
       
       await updateUser(selectedUser._id, updatedUserData)
       
+      // Reset form dan tutup popup hanya jika sukses
       setEditUserName('')
       setEditUserDate('')
       setShowEditForm(false)
       setSelectedUser(null)
       
-      // Data akan otomatis update via socket
       alert('User berhasil diupdate!')
       
     } catch (error) {
       console.error('❌ Error updating user:', error)
-      alert('Gagal mengupdate user: ' + error.message)
+      alert('Gagal mengupdate user: ' + (error.message || 'Unknown error'))
+      // Tetap biarkan popup terbuka agar user bisa memperbaiki input
     } finally {
-      setIsLoading(false)
+      setFormLoading(false)
     }
   }
 
@@ -185,7 +222,7 @@ const AkunUsers = ({ onNavigate }) => {
     if (!selectedUser) return
     
     try {
-      setIsLoading(true)
+      setFormLoading(true)
       
       await deleteUser(selectedUser._id)
       
@@ -193,87 +230,116 @@ const AkunUsers = ({ onNavigate }) => {
       setSelectedUser(null)
       setShowUserDetail(false)
       
-      // Data akan otomatis update via socket
       alert('User berhasil dihapus!')
       
     } catch (error) {
       console.error('❌ Error deleting user:', error)
-      alert('Gagal menghapus user: ' + error.message)
+      alert('Gagal menghapus user: ' + (error.message || 'Unknown error'))
     } finally {
-      setIsLoading(false)
+      setFormLoading(false)
     }
   }
 
   // Handle Force User Login
   const handleForceLogin = async (user) => {
+    if (!user) return
+    
     try {
       setIsLoading(true)
       
       await forceUserLogin(user._id)
       
-      // Data akan otomatis update via socket
       alert(`User ${user.name} berhasil di-set sebagai login!`)
       
     } catch (error) {
       console.error('❌ Error forcing user login:', error)
-      alert('Gagal mengupdate status login: ' + error.message)
+      alert('Gagal mengupdate status login: ' + (error.message || 'Unknown error'))
     } finally {
       setIsLoading(false)
     }
   }
 
-  // Format date dari input date
-  const formatDate = (dateString) => {
-    const date = new Date(dateString)
-    const options = { day: 'numeric', month: 'long', year: 'numeric' }
-    return date.toLocaleDateString('id-ID', options)
-  }
-
   // Format date untuk display
   const formatDisplayDate = (dateString) => {
-    const date = new Date(dateString)
-    const options = { day: 'numeric', month: 'long', year: 'numeric' }
-    return date.toLocaleDateString('id-ID', options)
+    if (!dateString) return 'Tanggal tidak tersedia'
+    try {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return 'Format tanggal tidak valid'
+      const options = { day: 'numeric', month: 'long', year: 'numeric' }
+      return date.toLocaleDateString('id-ID', options)
+    } catch  {
+      return 'Format tanggal tidak valid'
+    }
   }
 
   // Format last login untuk display
   const formatLastLogin = (user) => {
+    if (!user) return "Data tidak tersedia"
+    
     if (user.loginstatus) {
       return "Login"
     }
     
-    const lastLogin = new Date(user.lastlogin)
-    const now = new Date()
-    const diffMs = now - lastLogin
-    const diffMins = Math.floor(diffMs / (1000 * 60))
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    if (!user.lastlogin) {
+      return "Belum pernah login"
+    }
     
-    if (diffMins < 60) {
-      return `Terakhir Login ${diffMins} menit yang lalu`
-    } else if (diffHours < 24) {
-      return `Terakhir Login ${diffHours} jam yang lalu`
-    } else if (diffDays === 1) {
-      return "Terakhir Login Kemarin"
-    } else {
-      return `Terakhir Login ${diffDays} hari lalu`
+    try {
+      const lastLogin = new Date(user.lastlogin)
+      if (isNaN(lastLogin.getTime())) return "Format tanggal tidak valid"
+      
+      const now = new Date()
+      const diffMs = now - lastLogin
+      const diffMins = Math.floor(diffMs / (1000 * 60))
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+      
+      if (diffMins < 60) {
+        return `Terakhir Login ${diffMins} menit yang lalu`
+      } else if (diffHours < 24) {
+        return `Terakhir Login ${diffHours} jam yang lalu`
+      } else if (diffDays === 1) {
+        return "Terakhir Login Kemarin"
+      } else {
+        return `Terakhir Login ${diffDays} hari lalu`
+      }
+    } catch {
+      return "Format tanggal tidak valid"
     }
   }
 
   // Buka form edit
   const openEditForm = (user) => {
+    if (!user) return
+    
     setSelectedUser(user)
-    setEditUserName(user.name)
+    setEditUserName(user.name || '')
+    
     // Convert date string back to input format
-    const date = new Date(user.date)
-    const formattedDate = date.toISOString().split('T')[0]
-    setEditUserDate(formattedDate)
+    try {
+      if (user.date) {
+        const date = new Date(user.date)
+        if (!isNaN(date.getTime())) {
+          const formattedDate = date.toISOString().split('T')[0]
+          setEditUserDate(formattedDate)
+        } else {
+          setEditUserDate('')
+        }
+      } else {
+        setEditUserDate('')
+      }
+    } catch {
+      setEditUserDate('')
+    }
+    
     setShowEditForm(true)
     setShowUserDetail(false)
   }
 
   // Buka konfirmasi hapus
   const openDeleteConfirm = (user) => {
+    if (!user) return
+    
     setSelectedUser(user)
     setShowDeleteConfirm(true)
     setShowUserDetail(false)
@@ -281,18 +347,42 @@ const AkunUsers = ({ onNavigate }) => {
 
   // Buka detail user
   const openUserDetail = (user) => {
+    if (!user) return
+    
     setSelectedUser(user)
     setShowUserDetail(true)
   }
 
+  // Reset form state ketika modal ditutup
+  const handleCloseAddForm = () => {
+    setShowAddForm(false)
+    setNewUserName('')
+    setNewUserDate('')
+    setFormLoading(false)
+  }
+
+  const handleCloseEditForm = () => {
+    setShowEditForm(false)
+    setSelectedUser(null)
+    setEditUserName('')
+    setEditUserDate('')
+    setFormLoading(false)
+  }
+
+  const handleCloseDeleteConfirm = () => {
+    setShowDeleteConfirm(false)
+    setSelectedUser(null)
+    setFormLoading(false)
+  }
+
   return (
     <div className='space-y-4 xs:space-y-6 overflow-x-hidden min-h-screen bg-gray-50'>
-      {/* Loading Overlay */}
-      {isLoading && (
+      {/* Form Loading Overlay */}
+      {formLoading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl p-6 flex items-center gap-3">
             <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
-            <span className="text-gray-700 font-medium">Memuat data...</span>
+            <span className="text-gray-700 font-medium">Menyimpan...</span>
           </div>
         </div>
       )}
@@ -302,7 +392,7 @@ const AkunUsers = ({ onNavigate }) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div 
             className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-            onClick={() => setShowAddForm(false)}
+            onClick={handleCloseAddForm}
           ></div>
           <div className="relative bg-white rounded-2xl p-6 xs:p-8 w-full max-w-md 
                          shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-amber-100
@@ -310,9 +400,9 @@ const AkunUsers = ({ onNavigate }) => {
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-gray-800">Tambah Data User</h3>
               <button 
-                onClick={() => setShowAddForm(false)}
+                onClick={handleCloseAddForm}
                 className="p-2 rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-                disabled={isLoading}
+                disabled={formLoading}
               >
                 <i className='bx bx-x text-2xl'></i>
               </button>
@@ -332,7 +422,7 @@ const AkunUsers = ({ onNavigate }) => {
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm placeholder-gray-400"
                   placeholder="Masukkan nama user"
-                  disabled={isLoading}
+                  disabled={formLoading}
                 />
               </div>
               
@@ -348,29 +438,29 @@ const AkunUsers = ({ onNavigate }) => {
                            focus:ring-2 focus:ring-amber-500 focus:border-transparent
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm"
-                  disabled={isLoading}
+                  disabled={formLoading}
                 />
               </div>
             </div>
             
             <div className="flex gap-3 mt-8">
               <button
-                onClick={() => setShowAddForm(false)}
+                onClick={handleCloseAddForm}
                 className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 
                          rounded-2xl font-semibold text-sm hover:bg-gray-50 transition-colors"
-                disabled={isLoading}
+                disabled={formLoading}
               >
                 Batal
               </button>
               <button
                 onClick={handleAddUser}
-                disabled={isLoading}
+                disabled={formLoading}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 text-white 
                          rounded-2xl font-semibold text-sm shadow-[0_4px_12px_rgba(186,118,48,0.3)]
                          hover:from-amber-700 hover:to-amber-800 transition-all duration-200
                          disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? 'Menyimpan...' : 'Simpan'}
+                {formLoading ? 'Menyimpan...' : 'Simpan'}
               </button>
             </div>
           </div>
@@ -382,7 +472,7 @@ const AkunUsers = ({ onNavigate }) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div 
             className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-            onClick={() => setShowEditForm(false)}
+            onClick={handleCloseEditForm}
           ></div>
           <div className="relative bg-white rounded-2xl p-6 xs:p-8 w-full max-w-md 
                          shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-amber-100
@@ -390,9 +480,9 @@ const AkunUsers = ({ onNavigate }) => {
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-gray-800">Edit Data User</h3>
               <button 
-                onClick={() => setShowEditForm(false)}
+                onClick={handleCloseEditForm}
                 className="p-2 rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-                disabled={isLoading}
+                disabled={formLoading}
               >
                 <i className='bx bx-x text-2xl'></i>
               </button>
@@ -412,7 +502,7 @@ const AkunUsers = ({ onNavigate }) => {
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm placeholder-gray-400"
                   placeholder="Masukkan nama user"
-                  disabled={isLoading}
+                  disabled={formLoading}
                 />
               </div>
               
@@ -428,29 +518,29 @@ const AkunUsers = ({ onNavigate }) => {
                            focus:ring-2 focus:ring-amber-500 focus:border-transparent
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm"
-                  disabled={isLoading}
+                  disabled={formLoading}
                 />
               </div>
             </div>
             
             <div className="flex gap-3 mt-8">
               <button
-                onClick={() => setShowEditForm(false)}
+                onClick={handleCloseEditForm}
                 className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 
                          rounded-2xl font-semibold text-sm hover:bg-gray-50 transition-colors"
-                disabled={isLoading}
+                disabled={formLoading}
               >
                 Batal
               </button>
               <button
                 onClick={handleEditUser}
-                disabled={isLoading}
+                disabled={formLoading}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 text-white 
                          rounded-2xl font-semibold text-sm shadow-[0_4px_12px_rgba(186,118,48,0.3)]
                          hover:from-amber-700 hover:to-amber-800 transition-all duration-200
                          disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? 'Menyimpan...' : 'Simpan Perubahan'}
+                {formLoading ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>
             </div>
           </div>
@@ -462,7 +552,7 @@ const AkunUsers = ({ onNavigate }) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div 
             className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-            onClick={() => setShowDeleteConfirm(false)}
+            onClick={handleCloseDeleteConfirm}
           ></div>
           <div className="relative bg-white rounded-2xl p-6 xs:p-8 w-full max-w-md 
                          shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-amber-100
@@ -480,22 +570,22 @@ const AkunUsers = ({ onNavigate }) => {
             
             <div className="flex gap-3">
               <button
-                onClick={() => setShowDeleteConfirm(false)}
+                onClick={handleCloseDeleteConfirm}
                 className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 
                          rounded-2xl font-semibold text-sm hover:bg-gray-50 transition-colors"
-                disabled={isLoading}
+                disabled={formLoading}
               >
                 Batal
               </button>
               <button
                 onClick={handleDeleteUser}
-                disabled={isLoading}
+                disabled={formLoading}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white 
                          rounded-2xl font-semibold text-sm shadow-[0_4px_12px_rgba(220,38,38,0.3)]
                          hover:from-red-700 hover:to-red-800 transition-all duration-200
                          disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? 'Menghapus...' : 'Ya, Hapus'}
+                {formLoading ? 'Menghapus...' : 'Ya, Hapus'}
               </button>
             </div>
           </div>
@@ -678,7 +768,7 @@ const AkunUsers = ({ onNavigate }) => {
                     <i className='bx bx-x text-lg'></i>
                   </button>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1 max-h-60 overflow-y-auto custom-scrollbar">
                   {years.map(year => (
                     <button
                       key={year}
@@ -726,7 +816,7 @@ const AkunUsers = ({ onNavigate }) => {
           </div>
           
           <div className="text-xs xs:text-sm text-gray-500 text-center sm:text-left">
-            Menampilkan {usersByYear.length} user
+            {usersByYear.length} Akun User Tahun {selectedYear}
           </div>
         </div>
 
@@ -740,34 +830,22 @@ const AkunUsers = ({ onNavigate }) => {
                   <tr className="sticky top-0">
                     <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600 rounded-tl-2xl">
                       <div className="flex items-center gap-1">
-                        ID
-                        <button className="text-amber-200 hover:text-white transition-colors">
-                          <i className='bx bx-sort text-xs'></i>
-                        </button>
+                        No
                       </div>
                     </th>
                     <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600">
                       <div className="flex items-center gap-1">
                         Nama
-                        <button className="text-amber-200 hover:text-white transition-colors">
-                          <i className='bx bx-sort text-xs'></i>
-                        </button>
                       </div>
                     </th>
                     <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600">
                       <div className="flex items-center gap-1">
                         Tanggal Bergabung
-                        <button className="text-amber-200 hover:text-white transition-colors">
-                          <i className='bx bx-sort text-xs'></i>
-                        </button>
                       </div>
                     </th>
                     <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600">
                       <div className="flex items-center gap-1">
                         Status Login
-                        <button className="text-amber-200 hover:text-white transition-colors">
-                          <i className='bx bx-sort text-xs'></i>
-                        </button>
                       </div>
                     </th>
                     <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600 rounded-tr-2xl">
@@ -776,14 +854,14 @@ const AkunUsers = ({ onNavigate }) => {
                   </tr>
                   {/* Blur effect di bawah thead */}
                   <tr>
-                    <td colSpan="5" className="h-2 bg-gradient-to-b from-amber-600/20 to-transparent backdrop-blur-sm"></td>
+                    <td colSpan="6" className="h-2 bg-gradient-to-b from-amber-600/20 to-transparent backdrop-blur-sm"></td>
                   </tr>
                 </thead>
                 <tbody>
-                  {usersByYear.map((user) => (
+                  {usersByYear.map((user, index) => (
                     <tr key={user._id} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
-                      <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-medium">
-                        {user._id.substring(0, 8)}...
+                      <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-medium text-center">
+                        {index + 1}
                       </td>
                       <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm">
                         <div className="flex items-center gap-3">
@@ -852,7 +930,7 @@ const AkunUsers = ({ onNavigate }) => {
 
               {/* Mobile List */}
               <div className="md:hidden space-y-3">
-                {usersByYear.map((user) => (
+                {usersByYear.map((user, index) => (
                   <div key={user._id} className="bg-white rounded-2xl p-4 border border-amber-100 
                                               shadow-[0_4px_12px_rgba(186,118,48,0.1)] hover:shadow-[0_6px_20px_rgba(186,118,48,0.15)] 
                                               transition-all duration-200">
@@ -860,7 +938,7 @@ const AkunUsers = ({ onNavigate }) => {
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-600 to-amber-700 
                                       flex items-center justify-center text-white flex-shrink-0">
-                          <i className='bx bx-user text-base'></i>
+                          <span className="text-xs font-bold">{index + 1}</span>
                         </div>
                         <div className="min-w-0 flex-1">
                           <h3 className="font-semibold text-gray-800 text-sm truncate">{user.name}</h3>
