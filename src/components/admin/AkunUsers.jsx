@@ -1,4 +1,15 @@
+// components/AkunUsers.jsx
 import React, { useState, useEffect } from 'react'
+import { 
+  getAllUsers, 
+  addUser, 
+  updateUser, 
+  deleteUser, 
+  forceUserLogin,
+  initializeAkunUsersSocket,
+  cleanupAkunUsersSocket,
+  setUsersUpdateCallback
+} from '../api/Api_AkunUsers'
 
 const AkunUsers = ({ onNavigate }) => {
   const [selectedYear, setSelectedYear] = useState('2025')
@@ -14,6 +25,9 @@ const AkunUsers = ({ onNavigate }) => {
   const [editUserDate, setEditUserDate] = useState('')
   const [showUserDetail, setShowUserDetail] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [akunUsers, setAkunUsers] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [socket, setSocket] = useState(null)
 
   // Check screen size
   useEffect(() => {
@@ -29,6 +43,54 @@ const AkunUsers = ({ onNavigate }) => {
     }
   }, [])
 
+  // Initialize socket and load data
+  useEffect(() => {
+    const initializeData = async () => {
+      try {
+        setIsLoading(true)
+        
+        // Initialize socket
+        const userSocket = initializeAkunUsersSocket()
+        setSocket(userSocket)
+        
+        // Set callback for real-time updates
+        setUsersUpdateCallback((users) => {
+          console.log('🔄 Real-time update received in component:', users)
+          setAkunUsers(users)
+        })
+        
+        // Load initial data
+        await loadUsersData()
+        
+      } catch (error) {
+        console.error('❌ Error initializing data:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    initializeData()
+
+    // Cleanup on unmount
+    return () => {
+      cleanupAkunUsersSocket()
+      setUsersUpdateCallback(null)
+    }
+  }, [])
+
+  // Load users data from backend
+  const loadUsersData = async () => {
+    try {
+      console.log('📥 Loading users data from backend...')
+      const users = await getAllUsers()
+      setAkunUsers(users)
+      console.log('✅ Users data loaded successfully:', users.length)
+    } catch (error) {
+      console.error('❌ Failed to load users data:', error)
+      alert('Gagal memuat data users. Silakan refresh halaman.')
+    }
+  }
+
   const handleDashboardClick = () => {
     if (onNavigate) {
       onNavigate('Dashboard')
@@ -37,128 +99,127 @@ const AkunUsers = ({ onNavigate }) => {
 
   const handleAkunUsersRefresh = () => {
     setSearchTerm('')
+    loadUsersData()
   }
-
-  // Data akun users
-  const [akunUsers, setAkunUsers] = useState([
-    {
-      id: "1",
-      name: "Baihaqie Ar Rafi",
-      date: "19 November 2025",
-      loginStatus: "online",
-      lastLogin: "Login"
-    },
-    {
-      id: "2",
-      name: "Rahima Maisarah",
-      date: "19 November 2025",
-      loginStatus: "offline",
-      lastLogin: "Terakhir Login 19.00 yang lalu"
-    },
-    {
-      id: "3",
-      name: "Gabriel Silitonga",
-      date: "18 November 2025",
-      loginStatus: "offline",
-      lastLogin: "Terakhir Login Kemarin"
-    },
-    {
-      id: "4",
-      name: "Jarjit Shings",
-      date: "19 November 2025",
-      loginStatus: "online",
-      lastLogin: "Login"
-    },
-    {
-      id: "5",
-      name: "Sarah Johnson",
-      date: "17 November 2025",
-      loginStatus: "offline",
-      lastLogin: "Terakhir Login 3 hari lalu"
-    },
-    {
-      id: "6",
-      name: "Michael Chen",
-      date: "16 November 2025",
-      loginStatus: "online",
-      lastLogin: "Login"
-    },
-    {
-      id: "7",
-      name: "Lisa Anderson",
-      date: "15 Maret 2026",
-      loginStatus: "online",
-      lastLogin: "Login"
-    },
-    {
-      id: "8",
-      name: "Tukul Nono",
-      date: "15 Maret 2025",
-      loginStatus: "online",
-      lastLogin: "Login"
-    }
-  ])
-
-  
 
   const years = ['2025', '2026', '2027', '2028', '2029', '2030']
 
   const filteredUsers = akunUsers.filter(user =>
     user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.id.includes(searchTerm)
+    user._id.includes(searchTerm)
   )
 
   // Filter users berdasarkan tahun yang dipilih
-  const usersByYear = filteredUsers.filter(user => 
-    user.date.includes(selectedYear)
-  )
+  const usersByYear = filteredUsers.filter(user => {
+    const userYear = new Date(user.date).getFullYear().toString()
+    return userYear.includes(selectedYear)
+  })
 
   // Handle Tambah Data
-  const handleAddUser = () => {
-    if (newUserName.trim() === '' || newUserDate === '') return
-    
-    const newUser = {
-      id: (akunUsers.length + 1).toString(),
-      name: newUserName,
-      date: formatDate(newUserDate),
-      loginStatus: "offline",
-      lastLogin: "Belum pernah login"
+  const handleAddUser = async () => {
+    if (newUserName.trim() === '' || newUserDate === '') {
+      alert('Nama dan tanggal harus diisi')
+      return
     }
     
-    setAkunUsers([...akunUsers, newUser])
-    setNewUserName('')
-    setNewUserDate('')
-    setShowAddForm(false)
+    try {
+      setIsLoading(true)
+      
+      const newUserData = {
+        name: newUserName,
+        date: newUserDate
+      }
+      
+      await addUser(newUserData)
+      
+      setNewUserName('')
+      setNewUserDate('')
+      setShowAddForm(false)
+      
+      // Data akan otomatis update via socket
+      alert('User berhasil ditambahkan!')
+      
+    } catch (error) {
+      console.error('❌ Error adding user:', error)
+      alert('Gagal menambahkan user: ' + error.message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   // Handle Edit Data
-  const handleEditUser = () => {
-    if (editUserName.trim() === '' || editUserDate === '') return
+  const handleEditUser = async () => {
+    if (editUserName.trim() === '' || editUserDate === '') {
+      alert('Nama dan tanggal harus diisi')
+      return
+    }
     
-    const updatedUsers = akunUsers.map(user => 
-      user.id === selectedUser.id 
-        ? { 
-            ...user, 
-            name: editUserName, 
-            date: formatDate(editUserDate) 
-          } 
-        : user
-    )
-    
-    setAkunUsers(updatedUsers)
-    setEditUserName('')
-    setEditUserDate('')
-    setShowEditForm(false)
-    setSelectedUser(null)
+    try {
+      setIsLoading(true)
+      
+      const updatedUserData = {
+        name: editUserName,
+        date: editUserDate
+      }
+      
+      await updateUser(selectedUser._id, updatedUserData)
+      
+      setEditUserName('')
+      setEditUserDate('')
+      setShowEditForm(false)
+      setSelectedUser(null)
+      
+      // Data akan otomatis update via socket
+      alert('User berhasil diupdate!')
+      
+    } catch (error) {
+      console.error('❌ Error updating user:', error)
+      alert('Gagal mengupdate user: ' + error.message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   // Handle Hapus Data
-  const handleDeleteUser = () => {
-    const updatedUsers = akunUsers.filter(user => user.id !== selectedUser.id)
-    setAkunUsers(updatedUsers)
-    setShowDeleteConfirm(false)
-    setSelectedUser(null)
-    setShowUserDetail(false)
+  const handleDeleteUser = async () => {
+    if (!selectedUser) return
+    
+    try {
+      setIsLoading(true)
+      
+      await deleteUser(selectedUser._id)
+      
+      setShowDeleteConfirm(false)
+      setSelectedUser(null)
+      setShowUserDetail(false)
+      
+      // Data akan otomatis update via socket
+      alert('User berhasil dihapus!')
+      
+    } catch (error) {
+      console.error('❌ Error deleting user:', error)
+      alert('Gagal menghapus user: ' + error.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Handle Force User Login
+  const handleForceLogin = async (user) => {
+    try {
+      setIsLoading(true)
+      
+      await forceUserLogin(user._id)
+      
+      // Data akan otomatis update via socket
+      alert(`User ${user.name} berhasil di-set sebagai login!`)
+      
+    } catch (error) {
+      console.error('❌ Error forcing user login:', error)
+      alert('Gagal mengupdate status login: ' + error.message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   // Format date dari input date
@@ -168,17 +229,44 @@ const AkunUsers = ({ onNavigate }) => {
     return date.toLocaleDateString('id-ID', options)
   }
 
+  // Format date untuk display
+  const formatDisplayDate = (dateString) => {
+    const date = new Date(dateString)
+    const options = { day: 'numeric', month: 'long', year: 'numeric' }
+    return date.toLocaleDateString('id-ID', options)
+  }
+
+  // Format last login untuk display
+  const formatLastLogin = (user) => {
+    if (user.loginstatus) {
+      return "Login"
+    }
+    
+    const lastLogin = new Date(user.lastlogin)
+    const now = new Date()
+    const diffMs = now - lastLogin
+    const diffMins = Math.floor(diffMs / (1000 * 60))
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    
+    if (diffMins < 60) {
+      return `Terakhir Login ${diffMins} menit yang lalu`
+    } else if (diffHours < 24) {
+      return `Terakhir Login ${diffHours} jam yang lalu`
+    } else if (diffDays === 1) {
+      return "Terakhir Login Kemarin"
+    } else {
+      return `Terakhir Login ${diffDays} hari lalu`
+    }
+  }
+
   // Buka form edit
   const openEditForm = (user) => {
     setSelectedUser(user)
     setEditUserName(user.name)
     // Convert date string back to input format
-    const dateParts = user.date.split(' ')
-    const months = {
-      'Januari': '01', 'Februari': '02', 'Maret': '03', 'April': '04', 'Mei': '05', 'Juni': '06',
-      'Juli': '07', 'Agustus': '08', 'September': '09', 'Oktober': '10', 'November': '11', 'Desember': '12'
-    }
-    const formattedDate = `${dateParts[2]}-${months[dateParts[1]]}-${dateParts[0].padStart(2, '0')}`
+    const date = new Date(user.date)
+    const formattedDate = date.toISOString().split('T')[0]
     setEditUserDate(formattedDate)
     setShowEditForm(true)
     setShowUserDetail(false)
@@ -199,6 +287,16 @@ const AkunUsers = ({ onNavigate }) => {
 
   return (
     <div className='space-y-4 xs:space-y-6 overflow-x-hidden min-h-screen bg-gray-50'>
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-6 flex items-center gap-3">
+            <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-gray-700 font-medium">Memuat data...</span>
+          </div>
+        </div>
+      )}
+
       {/* Overlay dan Modal untuk Form Tambah Data */}
       {showAddForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -214,6 +312,7 @@ const AkunUsers = ({ onNavigate }) => {
               <button 
                 onClick={() => setShowAddForm(false)}
                 className="p-2 rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                disabled={isLoading}
               >
                 <i className='bx bx-x text-2xl'></i>
               </button>
@@ -233,6 +332,7 @@ const AkunUsers = ({ onNavigate }) => {
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm placeholder-gray-400"
                   placeholder="Masukkan nama user"
+                  disabled={isLoading}
                 />
               </div>
               
@@ -248,6 +348,7 @@ const AkunUsers = ({ onNavigate }) => {
                            focus:ring-2 focus:ring-amber-500 focus:border-transparent
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm"
+                  disabled={isLoading}
                 />
               </div>
             </div>
@@ -257,16 +358,19 @@ const AkunUsers = ({ onNavigate }) => {
                 onClick={() => setShowAddForm(false)}
                 className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 
                          rounded-2xl font-semibold text-sm hover:bg-gray-50 transition-colors"
+                disabled={isLoading}
               >
                 Batal
               </button>
               <button
                 onClick={handleAddUser}
+                disabled={isLoading}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 text-white 
                          rounded-2xl font-semibold text-sm shadow-[0_4px_12px_rgba(186,118,48,0.3)]
-                         hover:from-amber-700 hover:to-amber-800 transition-all duration-200"
+                         hover:from-amber-700 hover:to-amber-800 transition-all duration-200
+                         disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Simpan
+                {isLoading ? 'Menyimpan...' : 'Simpan'}
               </button>
             </div>
           </div>
@@ -288,6 +392,7 @@ const AkunUsers = ({ onNavigate }) => {
               <button 
                 onClick={() => setShowEditForm(false)}
                 className="p-2 rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                disabled={isLoading}
               >
                 <i className='bx bx-x text-2xl'></i>
               </button>
@@ -307,6 +412,7 @@ const AkunUsers = ({ onNavigate }) => {
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm placeholder-gray-400"
                   placeholder="Masukkan nama user"
+                  disabled={isLoading}
                 />
               </div>
               
@@ -322,6 +428,7 @@ const AkunUsers = ({ onNavigate }) => {
                            focus:ring-2 focus:ring-amber-500 focus:border-transparent
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm"
+                  disabled={isLoading}
                 />
               </div>
             </div>
@@ -331,16 +438,19 @@ const AkunUsers = ({ onNavigate }) => {
                 onClick={() => setShowEditForm(false)}
                 className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 
                          rounded-2xl font-semibold text-sm hover:bg-gray-50 transition-colors"
+                disabled={isLoading}
               >
                 Batal
               </button>
               <button
                 onClick={handleEditUser}
+                disabled={isLoading}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 text-white 
                          rounded-2xl font-semibold text-sm shadow-[0_4px_12px_rgba(186,118,48,0.3)]
-                         hover:from-amber-700 hover:to-amber-800 transition-all duration-200"
+                         hover:from-amber-700 hover:to-amber-800 transition-all duration-200
+                         disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Simpan Perubahan
+                {isLoading ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>
             </div>
           </div>
@@ -373,16 +483,19 @@ const AkunUsers = ({ onNavigate }) => {
                 onClick={() => setShowDeleteConfirm(false)}
                 className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 
                          rounded-2xl font-semibold text-sm hover:bg-gray-50 transition-colors"
+                disabled={isLoading}
               >
                 Batal
               </button>
               <button
                 onClick={handleDeleteUser}
+                disabled={isLoading}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white 
                          rounded-2xl font-semibold text-sm shadow-[0_4px_12px_rgba(220,38,38,0.3)]
-                         hover:from-red-700 hover:to-red-800 transition-all duration-200"
+                         hover:from-red-700 hover:to-red-800 transition-all duration-200
+                         disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Ya, Hapus
+                {isLoading ? 'Menghapus...' : 'Ya, Hapus'}
               </button>
             </div>
           </div>
@@ -421,7 +534,7 @@ const AkunUsers = ({ onNavigate }) => {
                   </div>
                   <div>
                     <h2 className="text-2xl font-bold text-gray-800">{selectedUser.name}</h2>
-                    <p className="text-gray-600">ID: {selectedUser.id}</p>
+                    <p className="text-gray-600">ID: {selectedUser._id}</p>
                   </div>
                 </div>
 
@@ -434,7 +547,7 @@ const AkunUsers = ({ onNavigate }) => {
                       </div>
                       <div>
                         <h4 className="font-semibold text-gray-800">Tanggal Bergabung</h4>
-                        <p className="text-gray-600 text-sm">{selectedUser.date}</p>
+                        <p className="text-gray-600 text-sm">{formatDisplayDate(selectedUser.date)}</p>
                       </div>
                     </div>
                   </div>
@@ -447,19 +560,19 @@ const AkunUsers = ({ onNavigate }) => {
                       <div>
                         <h4 className="font-semibold text-gray-800">Status Login</h4>
                         <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium mt-1 ${
-                          selectedUser.loginStatus === 'online' 
+                          selectedUser.loginstatus 
                             ? 'bg-green-100 text-green-800 border border-green-200' 
                             : 'bg-gray-100 text-gray-600 border border-gray-200'
                         }`}>
-                          {selectedUser.loginStatus === 'online' ? (
+                          {selectedUser.loginstatus ? (
                             <>
                               <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                              {selectedUser.lastLogin}
+                              {formatLastLogin(selectedUser)}
                             </>
                           ) : (
                             <>
                               <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                              {selectedUser.lastLogin}
+                              {formatLastLogin(selectedUser)}
                             </>
                           )}
                         </div>
@@ -473,6 +586,17 @@ const AkunUsers = ({ onNavigate }) => {
             {/* Action Buttons */}
             <div className="p-6 border-t border-amber-100 bg-white sticky bottom-0">
               <div className="flex gap-3">
+                <button
+                  onClick={() => handleForceLogin(selectedUser)}
+                  disabled={isLoading}
+                  className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white 
+                           rounded-2xl font-semibold text-sm shadow-[0_4px_12px_rgba(34,197,94,0.3)]
+                           hover:from-green-700 hover:to-green-800 transition-all duration-200
+                           flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <i className='bx bx-log-in text-lg'></i>
+                  Set Login
+                </button>
                 <button
                   onClick={() => openEditForm(selectedUser)}
                   className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white 
@@ -657,9 +781,9 @@ const AkunUsers = ({ onNavigate }) => {
                 </thead>
                 <tbody>
                   {usersByYear.map((user) => (
-                    <tr key={user.id} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
+                    <tr key={user._id} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
                       <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-medium">
-                        {user.id}
+                        {user._id.substring(0, 8)}...
                       </td>
                       <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm">
                         <div className="flex items-center gap-3">
@@ -673,26 +797,36 @@ const AkunUsers = ({ onNavigate }) => {
                       <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-600 text-xs lg:text-sm">
                         <div className="flex items-center gap-2">
                           <i className='bx bx-calendar text-gray-400 text-xs'></i>
-                          {user.date}
+                          {formatDisplayDate(user.date)}
                         </div>
                       </td>
                       <td className="py-3 xs:py-4 px-2 xs:px-4">
-                        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
-                          user.loginStatus === 'online' 
-                            ? 'bg-green-100 text-green-800 border border-green-200' 
-                            : 'bg-gray-100 text-gray-600 border border-gray-200'
-                        }`}>
-                          {user.loginStatus === 'online' ? (
-                            <>
-                              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                              {user.lastLogin}
-                            </>
-                          ) : (
-                            <>
-                              <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                              {user.lastLogin}
-                            </>
-                          )}
+                        <div className="flex items-center gap-2">
+                          <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
+                            user.loginstatus 
+                              ? 'bg-green-100 text-green-800 border border-green-200' 
+                              : 'bg-gray-100 text-gray-600 border border-gray-200'
+                          }`}>
+                            {user.loginstatus ? (
+                              <>
+                                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                                {formatLastLogin(user)}
+                              </>
+                            ) : (
+                              <>
+                                <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
+                                {formatLastLogin(user)}
+                              </>
+                            )}
+                          </div>
+                          <button 
+                            onClick={() => handleForceLogin(user)}
+                            disabled={isLoading}
+                            className="p-1.5 rounded-lg text-green-600 hover:bg-green-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Set sebagai login"
+                          >
+                            <i className='bx bx-log-in text-sm'></i>
+                          </button>
                         </div>
                       </td>
                       <td className="py-3 xs:py-4 px-2 xs:px-4">
@@ -719,7 +853,7 @@ const AkunUsers = ({ onNavigate }) => {
               {/* Mobile List */}
               <div className="md:hidden space-y-3">
                 {usersByYear.map((user) => (
-                  <div key={user.id} className="bg-white rounded-2xl p-4 border border-amber-100 
+                  <div key={user._id} className="bg-white rounded-2xl p-4 border border-amber-100 
                                               shadow-[0_4px_12px_rgba(186,118,48,0.1)] hover:shadow-[0_6px_20px_rgba(186,118,48,0.15)] 
                                               transition-all duration-200">
                     <div className="flex items-center justify-between">
@@ -730,7 +864,24 @@ const AkunUsers = ({ onNavigate }) => {
                         </div>
                         <div className="min-w-0 flex-1">
                           <h3 className="font-semibold text-gray-800 text-sm truncate">{user.name}</h3>
-                          <p className="text-gray-500 text-xs truncate">ID: {user.id}</p>
+                          <p className="text-gray-500 text-xs truncate">ID: {user._id.substring(0, 8)}...</p>
+                          <div className={`inline-flex items-center gap-2 px-2 py-1 rounded-full text-xs mt-1 ${
+                            user.loginstatus 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {user.loginstatus ? (
+                              <>
+                                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                                {formatLastLogin(user)}
+                              </>
+                            ) : (
+                              <>
+                                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full"></span>
+                                {formatLastLogin(user)}
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <button 
@@ -744,7 +895,7 @@ const AkunUsers = ({ onNavigate }) => {
                 ))}
               </div>
               
-              {usersByYear.length === 0 && (
+              {usersByYear.length === 0 && !isLoading && (
                 <div className="py-8 xs:py-12 text-center">
                   <div className="flex flex-col items-center justify-center text-gray-400">
                     <i className='bx bx-user-x text-4xl xs:text-5xl mb-3'></i>
