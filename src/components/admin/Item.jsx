@@ -1,13 +1,25 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { 
+  getAllItems, 
+  addItem, 
+  updateItem, 
+  deleteItem, 
+  sendItem,
+  initializeItemsSocket,
+  cleanupItemsSocket,
+  setItemsUpdateCallback
+} from '../../api/Api_Item'  
+import { getAllUsers } from '../../api/Api_AkunUsers'
 
 const Item = ({ onNavigate }) => {
-  const [selectedDate, setSelectedDate] = useState('2025-11-19')
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showSendConfirm, setShowSendConfirm] = useState(false)
+  const [showUserList, setShowUserList] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
   const [newItemCode, setNewItemCode] = useState('')
   const [newItemPrice, setNewItemPrice] = useState('')
@@ -17,6 +29,73 @@ const Item = ({ onNavigate }) => {
   const [editItemPrice, setEditItemPrice] = useState('')
   const [editItemImage, setEditItemImage] = useState(null)
   const [editItemPreview, setEditItemPreview] = useState('')
+  const [allItems, setAllItems] = useState([])
+  const [onlineUsers, setOnlineUsers] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [formLoading, setFormLoading] = useState(false)
+
+  // Initialize socket dan load data
+  useEffect(() => {
+    const initializeData = async () => {
+      try {
+        setIsLoading(true)
+        
+        // Initialize socket
+        initializeItemsSocket()
+        
+        // Set callback untuk real-time updates - OPTIMIZED: langsung update state
+        setItemsUpdateCallback((items) => {
+          console.log('🔄 Real-time items update received in component:', items)
+          setAllItems(Array.isArray(items) ? items : [])
+        })
+        
+        // Load initial data
+        await loadItemsData()
+        await loadOnlineUsers()
+        
+      } catch (error) {
+        console.error('❌ Error initializing data:', error)
+        setAllItems([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    initializeData()
+
+    // Cleanup on unmount
+    return () => {
+      cleanupItemsSocket()
+      setItemsUpdateCallback(null)
+    }
+  }, [])
+
+  // Load items data - OPTIMIZED: langsung set state tanpa delay
+  const loadItemsData = async () => {
+    try {
+      console.log('📥 Loading items data from backend...')
+      const items = await getAllItems()
+      setAllItems(Array.isArray(items) ? items : [])
+      console.log('✅ Items data loaded successfully:', Array.isArray(items) ? items.length : 0)
+    } catch (error) {
+      console.error('❌ Failed to load items data:', error)
+      setAllItems([])
+    }
+  }
+
+  // Load online users (yang sedang login)
+  const loadOnlineUsers = async () => {
+    try {
+      const users = await getAllUsers()
+      const onlineUsers = Array.isArray(users) 
+        ? users.filter(user => user.loginstatus === true)
+        : []
+      setOnlineUsers(onlineUsers)
+    } catch (error) {
+      console.error('❌ Failed to load online users:', error)
+      setOnlineUsers([])
+    }
+  }
 
   const handleDashboardClick = () => {
     if (onNavigate) {
@@ -26,6 +105,8 @@ const Item = ({ onNavigate }) => {
 
   const handleItemRefresh = () => {
     setSearchTerm('')
+    loadItemsData()
+    loadOnlineUsers()
   }
 
   const handleDateClick = () => {
@@ -43,20 +124,70 @@ const Item = ({ onNavigate }) => {
     return date.toLocaleDateString('id-ID', options)
   }
 
-  // Handle image upload for add form
+  // Filter items berdasarkan tanggal dan status
+  const filterItemsByDateAndStatus = (items, status) => {
+    return Array.isArray(items) 
+      ? items.filter(item => {
+          if (!item || item.status !== status) return false
+          try {
+            const itemDate = new Date(item.date).toISOString().split('T')[0]
+            return itemDate === selectedDate
+          } catch {
+            return false
+          }
+        })
+      : []
+  }
+
+  // Filter dengan search term
+  const filteredTersedia = filterItemsByDateAndStatus(allItems, 'Tersedia').filter(item =>
+    item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item._id.includes(searchTerm)
+  )
+
+  const filteredSoldOut = filterItemsByDateAndStatus(allItems, 'Sold Out').filter(item =>
+    item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item._id.includes(searchTerm)
+  )
+
+  // Handle image upload untuk form tambah
   const handleAddImageUpload = (e) => {
     const file = e.target.files[0]
     if (file) {
+      // Validasi ukuran file (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Ukuran file maksimal 5MB')
+        return
+      }
+      
+      // Validasi tipe file
+      if (!file.type.startsWith('image/')) {
+        alert('File harus berupa gambar')
+        return
+      }
+      
       setNewItemImage(file)
       const previewUrl = URL.createObjectURL(file)
       setNewItemPreview(previewUrl)
     }
   }
 
-  // Handle image upload for edit form
+  // Handle image upload untuk form edit
   const handleEditImageUpload = (e) => {
     const file = e.target.files[0]
     if (file) {
+      // Validasi ukuran file (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Ukuran file maksimal 5MB')
+        return
+      }
+      
+      // Validasi tipe file
+      if (!file.type.startsWith('image/')) {
+        alert('File harus berupa gambar')
+        return
+      }
+      
       setEditItemImage(file)
       const previewUrl = URL.createObjectURL(file)
       setEditItemPreview(previewUrl)
@@ -80,252 +211,211 @@ const Item = ({ onNavigate }) => {
     setSelectedItem(null)
   }
 
-  // Data items tersedia
-  const [tersediaItems, setTersediaItems] = useState([
-    {
-      id: "1",
-      code: "BRG001",
-      price: "5.000",
-      image: "/01.jpeg",
-      status: "Tersedia",
-      date: "2025-11-19"
-    },
-    {
-      id: "2",
-      code: "BRG002",
-      price: "10.000",
-      image: "/02.jpeg",
-      status: "Tersedia",
-      date: "2025-11-19"
-    },
-    {
-      id: "3",
-      code: "BRG003",
-      price: "5.000",
-      image: "/03.jpeg",
-      status: "Tersedia",
-      date: "2025-11-19"
-    },
-    {
-      id: "4",
-      code: "BRG004",
-      price: "5.000",
-      image: "/04.jpeg",
-      status: "Tersedia",
-      date: "2025-11-19"
-    },
-    {
-      id: "5",
-      code: "BRG005",
-      price: "10.000",
-      image: "/05.jpeg",
-      status: "Tersedia",
-      date: "2025-11-19"
-    },
-    {
-      id: "6",
-      code: "BRG006",
-      price: "10.000",
-      image: "/01.jpeg",
-      status: "Tersedia",
-      date: "2025-11-19"
+  // Handle Tambah Data - OPTIMIZED: langsung update tanpa delay
+  const handleAddItem = async () => {
+    if (newItemCode.trim() === '') {
+      alert('Code item harus diisi');
+      return;
     }
-  ])
 
-  // Data items sold out
-  const [soldOutItems, setSoldOutItems] = useState([
-    {
-      id: "7",
-      code: "BRG021",
-      price: "5.000",
-      image: "/01.jpeg",
-      status: "Sold Out",
-      date: "2025-11-18"
-    },
-    {
-      id: "8",
-      code: "BRG022",
-      price: "10.000",
-      image: "/02.jpeg",
-      status: "Sold Out",
-      date: "2025-11-19"
-    },
-    {
-      id: "9",
-      code: "BRG023",
-      price: "5.000",
-      image: "/03.jpeg",
-      status: "Sold Out",
-      date: "2025-11-19"
-    },
-    {
-      id: "10",
-      code: "BRG024",
-      price: "5.000",
-      image: "/04.jpeg",
-      status: "Sold Out",
-      date: "2025-11-18"
-    },
-    {
-      id: "11",
-      code: "BRG025",
-      price: "10.000",
-      image: "/05.jpeg",
-      status: "Sold Out",
-      date: "2025-11-19"
-    },
-    {
-      id: "12",
-      code: "BRG026",
-      price: "10.000",
-      image: "/01.jpeg",
-      status: "Sold Out",
-      date: "2025-11-19"
-    }
-  ])
-
-  const filteredTersedia = tersediaItems.filter(item =>
-    item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.id.includes(searchTerm)
-  )
-
-  const filteredSoldOut = soldOutItems.filter(item =>
-    item.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.id.includes(searchTerm)
-  )
-
-  // Filter items berdasarkan tanggal yang dipilih
-  const tersediaByDate = filteredTersedia.filter(item => 
-    item.date === selectedDate
-  )
-
-  const soldOutByDate = filteredSoldOut.filter(item => 
-    item.date === selectedDate
-  )
-
-  // Buat ID increment berdasarkan looping
-  const tersediaWithIncrementId = tersediaByDate.map((item, index) => ({
-    ...item,
-    incrementId: (index + 1).toString()
-  }))
-
-  const soldOutWithIncrementId = soldOutByDate.map((item, index) => ({
-    ...item,
-    incrementId: (index + 1).toString()
-  }))
-
-  // Handle Tambah Data
-  const handleAddItem = () => {
-    if (newItemCode.trim() === '' || newItemPrice === '' || !newItemImage) return
-    
-    // Simulate file upload - in real app, you would upload to server
-    const imageUrl = newItemPreview || '/default-image.jpeg'
-    
-    const newItem = {
-      id: (tersediaItems.length + soldOutItems.length + 1).toString(),
-      code: newItemCode,
-      price: formatPrice(newItemPrice),
-      image: imageUrl,
-      status: "Tersedia",
-      date: selectedDate
+    if (newItemPrice === '' || parseInt(newItemPrice) <= 0) {
+      alert('Harga harus diisi dan lebih dari 0');
+      return;
     }
     
-    setTersediaItems([...tersediaItems, newItem])
-    clearAddForm()
-    setShowAddForm(false)
+    try {
+      setFormLoading(true);
+      
+      // Convert image file to base64 untuk dikirim ke backend
+      let imageBase64 = ''
+      if (newItemImage) {
+          imageBase64 = await convertImageToBase64(newItemImage)
+      }
+      
+      const newItemData = {
+          code: newItemCode.trim(),
+          price: parseInt(newItemPrice),
+          image: imageBase64
+      }
+      
+      console.log('📤 Sending item data:', { 
+          ...newItemData, 
+          image: imageBase64 ? `Base64 (${imageBase64.length} chars)` : 'No image' 
+      });
+      
+      // Langsung panggil API tanpa delay - socket akan handle real-time update
+      await addItem(newItemData);
+      
+      // OPTIMIZED: Tidak perlu loadItemsData() lagi karena socket sudah handle real-time update
+      
+      // Reset form dan tutup popup
+      clearAddForm();
+      setShowAddForm(false);
+      
+    } catch (error) {
+      console.error('❌ Error adding item:', error);
+      alert('Gagal menambahkan item: ' + (error.message || 'Unknown error'));
+    } finally {
+      setFormLoading(false);
+    }
   }
 
-  // Handle Edit Data
-  const handleEditItem = () => {
-    if (editItemCode.trim() === '' || editItemPrice === '' || (!editItemImage && !editItemPreview)) return
-    
-    // Use existing image if no new image uploaded, otherwise use new preview
-    const imageUrl = editItemPreview || selectedItem?.image || '/default-image.jpeg'
-    
-    // Update di tersedia items
-    const updatedTersedia = tersediaItems.map(item => 
-      item.id === selectedItem.id 
-        ? { 
-            ...item, 
-            code: editItemCode, 
-            price: formatPrice(editItemPrice),
-            image: imageUrl
-          } 
-        : item
-    )
-    
-    // Update di sold out items
-    const updatedSoldOut = soldOutItems.map(item => 
-      item.id === selectedItem.id 
-        ? { 
-            ...item, 
-            code: editItemCode, 
-            price: formatPrice(editItemPrice),
-            image: imageUrl
-          } 
-        : item
-    )
-    
-    setTersediaItems(updatedTersedia)
-    setSoldOutItems(updatedSoldOut)
-    clearEditForm()
-    setShowEditForm(false)
-  }
+  // Handle Edit Data - OPTIMIZED: langsung update tanpa delay
+  const handleEditItem = async () => {
+    if (!selectedItem) {
+      alert('Item tidak ditemukan')
+      return
+    }
 
-  // Handle Hapus Data
-  const handleDeleteItem = () => {
-    const updatedTersedia = tersediaItems.filter(item => item.id !== selectedItem.id)
-    const updatedSoldOut = soldOutItems.filter(item => item.id !== selectedItem.id)
-    
-    setTersediaItems(updatedTersedia)
-    setSoldOutItems(updatedSoldOut)
-    setShowDeleteConfirm(false)
-    setSelectedItem(null)
-  }
+    if (editItemCode.trim() === '') {
+      alert('Code item harus diisi')
+      return
+    }
 
-  // Handle Send Item (Pindah dari Tersedia ke Sold Out)
-  const handleSendItem = () => {
-    // Hapus dari tersedia
-    const updatedTersedia = tersediaItems.filter(item => item.id !== selectedItem.id)
-    
-    // Tambah ke sold out dengan status Sold Out
-    const sentItem = {
-      ...selectedItem,
-      status: "Sold Out",
-      date: selectedDate
+    if (editItemPrice === '' || parseInt(editItemPrice) <= 0) {
+      alert('Harga harus diisi dan lebih dari 0')
+      return
     }
     
-    setTersediaItems(updatedTersedia)
-    setSoldOutItems([...soldOutItems, sentItem])
-    setShowSendConfirm(false)
-    setSelectedItem(null)
+    try {
+      setFormLoading(true)
+      
+      // Convert image file to base64 jika ada gambar baru
+      let imageBase64 = selectedItem.image // Gunakan gambar lama sebagai default
+      if (editItemImage) {
+        imageBase64 = await convertImageToBase64(editItemImage)
+      }
+      
+      const updatedItemData = {
+        code: editItemCode.trim(),
+        price: parseInt(editItemPrice),
+        image: imageBase64
+      }
+      
+      // Langsung panggil API tanpa delay - socket akan handle real-time update
+      await updateItem(selectedItem._id, updatedItemData)
+      
+      // OPTIMIZED: Tidak perlu loadItemsData() lagi karena socket sudah handle real-time update
+      
+      // Reset form dan tutup popup
+      clearEditForm()
+      setShowEditForm(false)
+      
+    } catch (error) {
+      console.error('❌ Error updating item:', error)
+      alert('Gagal mengupdate item: ' + (error.message || 'Unknown error'))
+    } finally {
+      setFormLoading(false)
+    }
+  }
+
+  // Convert image to base64
+  const convertImageToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = error => reject(error)
+    })
+  }
+
+  // Handle Hapus Data - OPTIMIZED: langsung update tanpa delay
+  const handleDeleteItem = async () => {
+    if (!selectedItem) return
+    
+    try {
+      setFormLoading(true)
+      
+      // Langsung panggil API tanpa delay - socket akan handle real-time update
+      await deleteItem(selectedItem._id)
+      
+      // OPTIMIZED: Tidak perlu loadItemsData() lagi karena socket sudah handle real-time update
+      
+      setShowDeleteConfirm(false)
+      setSelectedItem(null)
+      
+    } catch (error) {
+      console.error('❌ Error deleting item:', error)
+      alert('Gagal menghapus item: ' + (error.message || 'Unknown error'))
+    } finally {
+      setFormLoading(false)
+    }
+  }
+
+  // Handle Send Item - OPTIMIZED: langsung update tanpa delay
+  const handleSendItem = async (userId) => {
+    if (!selectedItem) return
+    
+    try {
+      setFormLoading(true)
+      
+      // Langsung panggil API tanpa delay - socket akan handle real-time update
+      await sendItem(selectedItem._id, userId)
+      
+      // OPTIMIZED: Tidak perlu loadItemsData() lagi karena socket sudah handle real-time update
+      
+      setShowSendConfirm(false)
+      setShowUserList(false)
+      setSelectedItem(null)
+      
+    } catch (error) {
+      console.error('❌ Error sending item:', error)
+      alert('Gagal mengirim item: ' + (error.message || 'Unknown error'))
+    } finally {
+      setFormLoading(false)
+    }
   }
 
   // Format price
   const formatPrice = (price) => {
-    return new Intl.NumberFormat('id-ID').format(parseInt(price))
+    return new Intl.NumberFormat('id-ID').format(price)
+  }
+
+  // Format date untuk display
+  const formatDisplayDate = (dateString) => {
+    if (!dateString) return 'Tanggal tidak tersedia'
+    try {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return 'Format tanggal tidak valid'
+      const options = { day: 'numeric', month: 'long', year: 'numeric' }
+      return date.toLocaleDateString('id-ID', options)
+    } catch {
+      return 'Format tanggal tidak valid'
+    }
   }
 
   // Buka form edit
   const openEditForm = (item) => {
+    if (!item) return
+    
     setSelectedItem(item)
-    setEditItemCode(item.code)
-    setEditItemPrice(item.price.replace(/\./g, ''))
-    setEditItemPreview(item.image)
+    setEditItemCode(item.code || '')
+    setEditItemPrice(item.price?.toString() || '')
+    setEditItemPreview(item.image || '')
     setEditItemImage(null)
     setShowEditForm(true)
   }
 
   // Buka konfirmasi hapus
   const openDeleteConfirm = (item) => {
+    if (!item) return
+    
     setSelectedItem(item)
     setShowDeleteConfirm(true)
   }
 
-  // Buka konfirmasi send
-  const openSendConfirm = (item) => {
+  // Buka konfirmasi send dan tampilkan list user online
+  const openSendConfirm = async (item) => {
+    if (!item) return
+    
     setSelectedItem(item)
     setShowSendConfirm(true)
+    
+    // Load ulang user online
+    await loadOnlineUsers()
+    
+    // Tampilkan list user
+    setShowUserList(true)
   }
 
   // Get status color
@@ -354,35 +444,76 @@ const Item = ({ onNavigate }) => {
 
   // Render image
   const renderImage = (image) => {
-    return (
-      <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden">
-        <img 
-          src={image} 
-          alt="Gambar item"
-          className="w-full h-full object-cover"
-          onError={(e) => {
-            e.target.style.display = 'none'
-            e.target.nextSibling.style.display = 'flex'
-          }}
-        />
-        <div className="hidden items-center justify-center text-gray-400 text-xs">
-          <i className='bx bx-image'></i>
+    if (image) {
+      return (
+        <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden">
+          <img 
+            src={image} 
+            alt="Gambar item"
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              e.target.style.display = 'none'
+              e.target.nextSibling.style.display = 'flex'
+            }}
+          />
+          <div className="hidden items-center justify-center text-gray-400 text-xs">
+            <i className='bx bx-image'></i>
+          </div>
         </div>
-      </div>
-    )
+      )
+    } else {
+      return (
+        <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400">
+          <i className='bx bx-image text-xs'></i>
+        </div>
+      )
+    }
+  }
+
+  // Reset form state ketika modal ditutup - OPTIMIZED: langsung tutup tanpa validasi
+  const handleCloseAddForm = () => {
+    setShowAddForm(false)
+    clearAddForm()
+    setFormLoading(false)
+  }
+
+  const handleCloseEditForm = () => {
+    setShowEditForm(false)
+    clearEditForm()
+    setFormLoading(false)
+  }
+
+  const handleCloseDeleteConfirm = () => {
+    setShowDeleteConfirm(false)
+    setSelectedItem(null)
+    setFormLoading(false)
+  }
+
+  const handleCloseSendConfirm = () => {
+    setShowSendConfirm(false)
+    setShowUserList(false)
+    setSelectedItem(null)
+    setFormLoading(false)
   }
 
   return (
     <div className='space-y-4 xs:space-y-6 overflow-x-hidden min-h-screen bg-gray-50'>
+      {/* Form Loading Overlay */}
+      {formLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-6 flex items-center gap-3">
+            <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-gray-700 font-medium">Menyimpan...</span>
+          </div>
+        </div>
+      )}
+
       {/* Overlay dan Modal untuk Form Tambah Data */}
       {showAddForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div 
             className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-            onClick={() => {
-              setShowAddForm(false)
-              clearAddForm()
-            }}
+            onClick={handleCloseAddForm}
           ></div>
           <div className="relative bg-white rounded-2xl p-6 xs:p-8 w-full max-w-md 
                          shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-amber-100
@@ -390,11 +521,9 @@ const Item = ({ onNavigate }) => {
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-gray-800">Tambah Data Item</h3>
               <button 
-                onClick={() => {
-                  setShowAddForm(false)
-                  clearAddForm()
-                }}
+                onClick={handleCloseAddForm}
                 className="p-2 rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                disabled={formLoading}
               >
                 <i className='bx bx-x text-2xl'></i>
               </button>
@@ -414,6 +543,7 @@ const Item = ({ onNavigate }) => {
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm placeholder-gray-400"
                   placeholder="Masukkan code item"
+                  disabled={formLoading}
                 />
               </div>
               
@@ -430,6 +560,7 @@ const Item = ({ onNavigate }) => {
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm placeholder-gray-400"
                   placeholder="Masukkan harga"
+                  disabled={formLoading}
                 />
               </div>
 
@@ -465,6 +596,7 @@ const Item = ({ onNavigate }) => {
                       className="hidden" 
                       accept="image/*"
                       onChange={handleAddImageUpload}
+                      disabled={formLoading}
                     />
                   </label>
                   
@@ -484,6 +616,7 @@ const Item = ({ onNavigate }) => {
                           setNewItemPreview('')
                         }}
                         className="text-red-500 hover:text-red-700"
+                        disabled={formLoading}
                       >
                         <i className='bx bx-x'></i>
                       </button>
@@ -495,24 +628,22 @@ const Item = ({ onNavigate }) => {
             
             <div className="flex gap-3 mt-8">
               <button
-                onClick={() => {
-                  setShowAddForm(false)
-                  clearAddForm()
-                }}
+                onClick={handleCloseAddForm}
                 className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 
                          rounded-2xl font-semibold text-sm hover:bg-gray-50 transition-colors"
+                disabled={formLoading}
               >
                 Batal
               </button>
               <button
                 onClick={handleAddItem}
-                disabled={!newItemCode || !newItemPrice || !newItemImage}
+                disabled={formLoading || !newItemCode || !newItemPrice}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 text-white 
                          rounded-2xl font-semibold text-sm shadow-[0_4px_12px_rgba(186,118,48,0.3)]
                          hover:from-amber-700 hover:to-amber-800 transition-all duration-200
-                         disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed"
+                         disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Simpan
+                {formLoading ? 'Menyimpan...' : 'Simpan'}
               </button>
             </div>
           </div>
@@ -524,10 +655,7 @@ const Item = ({ onNavigate }) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div 
             className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-            onClick={() => {
-              setShowEditForm(false)
-              clearEditForm()
-            }}
+            onClick={handleCloseEditForm}
           ></div>
           <div className="relative bg-white rounded-2xl p-6 xs:p-8 w-full max-w-md 
                          shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-amber-100
@@ -535,11 +663,9 @@ const Item = ({ onNavigate }) => {
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-gray-800">Edit Data Item</h3>
               <button 
-                onClick={() => {
-                  setShowEditForm(false)
-                  clearEditForm()
-                }}
+                onClick={handleCloseEditForm}
                 className="p-2 rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                disabled={formLoading}
               >
                 <i className='bx bx-x text-2xl'></i>
               </button>
@@ -559,6 +685,7 @@ const Item = ({ onNavigate }) => {
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm placeholder-gray-400"
                   placeholder="Masukkan code item"
+                  disabled={formLoading}
                 />
               </div>
               
@@ -575,6 +702,7 @@ const Item = ({ onNavigate }) => {
                            bg-gray-50 hover:bg-white transition-colors duration-200
                            text-sm placeholder-gray-400"
                   placeholder="Masukkan harga"
+                  disabled={formLoading}
                 />
               </div>
 
@@ -623,6 +751,7 @@ const Item = ({ onNavigate }) => {
                       className="hidden" 
                       accept="image/*"
                       onChange={handleEditImageUpload}
+                      disabled={formLoading}
                     />
                   </label>
                   
@@ -642,6 +771,7 @@ const Item = ({ onNavigate }) => {
                           setEditItemPreview(selectedItem.image)
                         }}
                         className="text-red-500 hover:text-red-700"
+                        disabled={formLoading}
                       >
                         <i className='bx bx-x'></i>
                       </button>
@@ -653,24 +783,22 @@ const Item = ({ onNavigate }) => {
             
             <div className="flex gap-3 mt-8">
               <button
-                onClick={() => {
-                  setShowEditForm(false)
-                  clearEditForm()
-                }}
+                onClick={handleCloseEditForm}
                 className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 
                          rounded-2xl font-semibold text-sm hover:bg-gray-50 transition-colors"
+                disabled={formLoading}
               >
                 Batal
               </button>
               <button
                 onClick={handleEditItem}
-                disabled={!editItemCode || !editItemPrice || (!editItemImage && !editItemPreview)}
+                disabled={formLoading || !editItemCode || !editItemPrice}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 text-white 
                          rounded-2xl font-semibold text-sm shadow-[0_4px_12px_rgba(186,118,48,0.3)]
                          hover:from-amber-700 hover:to-amber-800 transition-all duration-200
-                         disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed"
+                         disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Simpan Perubahan
+                {formLoading ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>
             </div>
           </div>
@@ -682,7 +810,7 @@ const Item = ({ onNavigate }) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div 
             className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-            onClick={() => setShowDeleteConfirm(false)}
+            onClick={handleCloseDeleteConfirm}
           ></div>
           <div className="relative bg-white rounded-2xl p-6 xs:p-8 w-full max-w-md 
                          shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-amber-100
@@ -700,61 +828,102 @@ const Item = ({ onNavigate }) => {
             
             <div className="flex gap-3">
               <button
-                onClick={() => setShowDeleteConfirm(false)}
+                onClick={handleCloseDeleteConfirm}
                 className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 
                          rounded-2xl font-semibold text-sm hover:bg-gray-50 transition-colors"
+                disabled={formLoading}
               >
                 Batal
               </button>
               <button
                 onClick={handleDeleteItem}
+                disabled={formLoading}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white 
                          rounded-2xl font-semibold text-sm shadow-[0_4px_12px_rgba(220,38,38,0.3)]
-                         hover:from-red-700 hover:to-red-800 transition-all duration-200"
+                         hover:from-red-700 hover:to-red-800 transition-all duration-200
+                         disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Ya, Hapus
+                {formLoading ? 'Menghapus...' : 'Ya, Hapus'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Overlay dan Modal untuk Konfirmasi Send */}
+      {/* Overlay dan Modal untuk Konfirmasi Send dengan List User Online */}
       {showSendConfirm && selectedItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div 
             className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-            onClick={() => setShowSendConfirm(false)}
+            onClick={handleCloseSendConfirm}
           ></div>
           <div className="relative bg-white rounded-2xl p-6 xs:p-8 w-full max-w-md 
                          shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-amber-100
-                         animate-scaleIn">
-            <div className="text-center">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-100 flex items-center justify-center">
-                <i className='bx bx-send text-2xl text-blue-600'></i>
-              </div>
-              
-              <h3 className="text-xl font-bold text-gray-800 mb-2">Kirim Item</h3>
-              <p className="text-gray-600 mb-6">
-                Apakah Anda yakin ingin mengirim item <span className="font-semibold text-amber-700">{selectedItem.code}</span>? Item akan dipindahkan ke Sold Out.
+                         animate-scaleIn max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-gray-800">Kirim Item</h3>
+              <button 
+                onClick={handleCloseSendConfirm}
+                className="p-2 rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                disabled={formLoading}
+              >
+                <i className='bx bx-x text-2xl'></i>
+              </button>
+            </div>
+
+            <div className="text-center mb-6">
+              <p className="text-gray-600">
+                Pilih user online untuk mengirim item: <span className="font-semibold text-amber-700">{selectedItem.code}</span>
               </p>
             </div>
-            
-            <div className="flex gap-3">
+
+            {/* List User Online */}
+            {showUserList && (
+              <div className="flex-1 overflow-y-auto custom-scrollbar mb-6">
+                {onlineUsers.length > 0 ? (
+                  <div className="space-y-3">
+                    {onlineUsers.map((user) => (
+                      <button
+                        key={user._id}
+                        onClick={() => handleSendItem(user._id)}
+                        disabled={formLoading}
+                        className="w-full p-4 bg-amber-50 rounded-xl border border-amber-200 
+                                 hover:bg-amber-100 hover:border-amber-300 transition-all duration-200
+                                 flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-600 to-amber-700 
+                                      flex items-center justify-center text-white flex-shrink-0">
+                          <i className='bx bx-user text-sm'></i>
+                        </div>
+                        <div className="text-left flex-1">
+                          <h4 className="font-semibold text-gray-800 text-sm">{user.name}</h4>
+                          <p className="text-gray-600 text-xs">ID: {user._id.substring(0, 8)}...</p>
+                        </div>
+                        <div className="flex items-center gap-2 text-green-600">
+                          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                          <span className="text-xs font-medium">Online</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <i className='bx bx-user-x text-4xl text-gray-400 mb-3'></i>
+                    <p className="text-gray-500 text-sm">Tidak ada user yang online</p>
+                    <p className="text-gray-400 text-xs mt-1">User harus login terlebih dahulu</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-4 border-t border-amber-100">
               <button
-                onClick={() => setShowSendConfirm(false)}
+                onClick={handleCloseSendConfirm}
                 className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 
                          rounded-2xl font-semibold text-sm hover:bg-gray-50 transition-colors"
+                disabled={formLoading}
               >
                 Batal
-              </button>
-              <button
-                onClick={handleSendItem}
-                className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white 
-                         rounded-2xl font-semibold text-sm shadow-[0_4px_12px_rgba(37,99,235,0.3)]
-                         hover:from-blue-700 hover:to-blue-800 transition-all duration-200"
-              >
-                Ya, Kirim
               </button>
             </div>
           </div>
@@ -819,8 +988,7 @@ const Item = ({ onNavigate }) => {
                   value={selectedDate}
                   onChange={handleDateChange}
                   className="w-full px-3 py-2 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                  max="2025-12-31"
-                  min="2025-01-01"
+                  max={new Date().toISOString().split('T')[0]}
                 />
               </div>
             )}
@@ -838,7 +1006,7 @@ const Item = ({ onNavigate }) => {
           {/* Header Section Tersedia dengan Search dan Tambah Data */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
-              <h2 className="text-lg xs:text-xl font-bold text-gray-800">Tersedia ({tersediaWithIncrementId.length})</h2>
+              <h2 className="text-lg xs:text-xl font-bold text-gray-800">Tersedia ({filteredTersedia.length})</h2>
             </div>
             
             <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
@@ -884,17 +1052,11 @@ const Item = ({ onNavigate }) => {
                       <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600 rounded-tl-2xl">
                         <div className="flex items-center gap-1">
                           No
-                          <button className="text-amber-200 hover:text-white transition-colors">
-                            <i className='bx bx-sort text-xs'></i>
-                          </button>
                         </div>
                       </th>
                       <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600">
                         <div className="flex items-center gap-1">
                           Code Item
-                          <button className="text-amber-200 hover:text-white transition-colors">
-                            <i className='bx bx-sort text-xs'></i>
-                          </button>
                         </div>
                       </th>
                       <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600">
@@ -918,16 +1080,16 @@ const Item = ({ onNavigate }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {tersediaWithIncrementId.map((item) => (
-                      <tr key={item.id} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
-                        <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-medium">
-                          {item.incrementId}
+                    {filteredTersedia.map((item, index) => (
+                      <tr key={item._id} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
+                        <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-medium text-center">
+                          {index + 1}
                         </td>
                         <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-medium">
                           {item.code}
                         </td>
                         <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-semibold">
-                          Rp {item.price}
+                          Rp {formatPrice(item.price)}
                         </td>
                         <td className="py-3 xs:py-4 px-2 xs:px-4">
                           {renderImage(item.image)}
@@ -939,11 +1101,7 @@ const Item = ({ onNavigate }) => {
                           </div>
                         </td>
                         <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-600 text-xs lg:text-sm">
-                          {new Date(item.date).toLocaleDateString('id-ID', { 
-                            day: 'numeric', 
-                            month: 'long', 
-                            year: 'numeric' 
-                          })}
+                          {formatDisplayDate(item.date)}
                         </td>
                         <td className="py-3 xs:py-4 px-2 xs:px-4">
                           <div className="flex items-center gap-2">
@@ -977,8 +1135,8 @@ const Item = ({ onNavigate }) => {
 
                 {/* Mobile List Tersedia */}
                 <div className="md:hidden space-y-3">
-                  {tersediaWithIncrementId.map((item) => (
-                    <div key={item.id} className="bg-white rounded-2xl p-4 border border-green-100 
+                  {filteredTersedia.map((item, index) => (
+                    <div key={item._id} className="bg-white rounded-2xl p-4 border border-green-100 
                                                 shadow-[0_4px_12px_rgba(34,197,94,0.1)] hover:shadow-[0_6px_20px_rgba(34,197,94,0.15)] 
                                                 transition-all duration-200">
                       <div className="flex items-center justify-between mb-3">
@@ -986,7 +1144,7 @@ const Item = ({ onNavigate }) => {
                           {renderImage(item.image)}
                           <div className="min-w-0 flex-1">
                             <h3 className="font-semibold text-gray-800 text-sm truncate">{item.code}</h3>
-                            <p className="text-gray-500 text-xs truncate">No: {item.incrementId}</p>
+                            <p className="text-gray-500 text-xs truncate">No: {index + 1}</p>
                           </div>
                         </div>
                         <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(item.status)}`}>
@@ -997,13 +1155,9 @@ const Item = ({ onNavigate }) => {
                       
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-gray-600 text-sm font-semibold">Rp {item.price}</p>
+                          <p className="text-gray-600 text-sm font-semibold">Rp {formatPrice(item.price)}</p>
                           <p className="text-gray-500 text-xs">
-                            {new Date(item.date).toLocaleDateString('id-ID', { 
-                              day: 'numeric', 
-                              month: 'long', 
-                              year: 'numeric' 
-                            })}
+                            {formatDisplayDate(item.date)}
                           </p>
                         </div>
                         <div className="flex items-center gap-1">
@@ -1033,6 +1187,16 @@ const Item = ({ onNavigate }) => {
                     </div>
                   ))}
                 </div>
+
+                {filteredTersedia.length === 0 && !isLoading && (
+                  <div className="py-8 xs:py-12 text-center">
+                    <div className="flex flex-col items-center justify-center text-gray-400">
+                      <i className='bx bx-package text-4xl xs:text-5xl mb-3'></i>
+                      <p className="text-sm xs:text-base font-medium">Tidak ada item tersedia</p>
+                      <p className="text-xs xs:text-sm mt-1">Coba ubah tanggal atau kata kunci pencarian</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1045,7 +1209,7 @@ const Item = ({ onNavigate }) => {
           {/* Header Section Sold Out */}
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <h2 className="text-lg xs:text-xl font-bold text-gray-800">Sold Out ({soldOutWithIncrementId.length})</h2>
+              <h2 className="text-lg xs:text-xl font-bold text-gray-800">Sold Out ({filteredSoldOut.length})</h2>
             </div>
           </div>
 
@@ -1059,17 +1223,11 @@ const Item = ({ onNavigate }) => {
                       <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600 rounded-tl-2xl">
                         <div className="flex items-center gap-1">
                           No
-                          <button className="text-amber-200 hover:text-white transition-colors">
-                            <i className='bx bx-sort text-xs'></i>
-                          </button>
                         </div>
                       </th>
                       <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600">
                         <div className="flex items-center gap-1">
                           Code Item
-                          <button className="text-amber-200 hover:text-white transition-colors">
-                            <i className='bx bx-sort text-xs'></i>
-                          </button>
                         </div>
                       </th>
                       <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600">
@@ -1082,6 +1240,9 @@ const Item = ({ onNavigate }) => {
                         Status
                       </th>
                       <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600">
+                        Dikirim Ke
+                      </th>
+                      <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600">
                         Tanggal
                       </th>
                       <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600 rounded-tr-2xl">
@@ -1089,20 +1250,20 @@ const Item = ({ onNavigate }) => {
                       </th>
                     </tr>
                     <tr>
-                      <td colSpan="7" className="h-2 bg-gradient-to-b from-amber-600/20 to-transparent backdrop-blur-sm"></td>
+                      <td colSpan="8" className="h-2 bg-gradient-to-b from-amber-600/20 to-transparent backdrop-blur-sm"></td>
                     </tr>
                   </thead>
                   <tbody>
-                    {soldOutWithIncrementId.map((item) => (
-                      <tr key={item.id} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
-                        <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-medium">
-                          {item.incrementId}
+                    {filteredSoldOut.map((item, index) => (
+                      <tr key={item._id} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
+                        <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-medium text-center">
+                          {index + 1}
                         </td>
                         <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-medium">
                           {item.code}
                         </td>
                         <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-semibold">
-                          Rp {item.price}
+                          Rp {formatPrice(item.price)}
                         </td>
                         <td className="py-3 xs:py-4 px-2 xs:px-4">
                           {renderImage(item.image)}
@@ -1114,11 +1275,10 @@ const Item = ({ onNavigate }) => {
                           </div>
                         </td>
                         <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-600 text-xs lg:text-sm">
-                          {new Date(item.date).toLocaleDateString('id-ID', { 
-                            day: 'numeric', 
-                            month: 'long', 
-                            year: 'numeric' 
-                          })}
+                          {item.sentTo ? item.sentTo.name : 'Tidak ada'}
+                        </td>
+                        <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-600 text-xs lg:text-sm">
+                          {formatDisplayDate(item.date)}
                         </td>
                         <td className="py-3 xs:py-4 px-2 xs:px-4">
                           <div className="flex items-center gap-2">
@@ -1138,8 +1298,8 @@ const Item = ({ onNavigate }) => {
 
                 {/* Mobile List Sold Out */}
                 <div className="md:hidden space-y-3">
-                  {soldOutWithIncrementId.map((item) => (
-                    <div key={item.id} className="bg-white rounded-2xl p-4 border border-red-100 
+                  {filteredSoldOut.map((item, index) => (
+                    <div key={item._id} className="bg-white rounded-2xl p-4 border border-red-100 
                                                 shadow-[0_4px_12px_rgba(239,68,68,0.1)] hover:shadow-[0_6px_20px_rgba(239,68,68,0.15)] 
                                                 transition-all duration-200">
                       <div className="flex items-center justify-between mb-3">
@@ -1147,7 +1307,10 @@ const Item = ({ onNavigate }) => {
                           {renderImage(item.image)}
                           <div className="min-w-0 flex-1">
                             <h3 className="font-semibold text-gray-800 text-sm truncate">{item.code}</h3>
-                            <p className="text-gray-500 text-xs truncate">No: {item.incrementId}</p>
+                            <p className="text-gray-500 text-xs truncate">No: {index + 1}</p>
+                            <p className="text-gray-500 text-xs truncate">
+                              Dikirim ke: {item.sentTo ? item.sentTo.name : 'Tidak ada'}
+                            </p>
                           </div>
                         </div>
                         <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(item.status)}`}>
@@ -1158,13 +1321,9 @@ const Item = ({ onNavigate }) => {
                       
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-gray-600 text-sm font-semibold">Rp {item.price}</p>
+                          <p className="text-gray-600 text-sm font-semibold">Rp {formatPrice(item.price)}</p>
                           <p className="text-gray-500 text-xs">
-                            {new Date(item.date).toLocaleDateString('id-ID', { 
-                              day: 'numeric', 
-                              month: 'long', 
-                              year: 'numeric' 
-                            })}
+                            {formatDisplayDate(item.date)}
                           </p>
                         </div>
                         <div className="flex items-center gap-1">
@@ -1180,6 +1339,16 @@ const Item = ({ onNavigate }) => {
                     </div>
                   ))}
                 </div>
+
+                {filteredSoldOut.length === 0 && !isLoading && (
+                  <div className="py-8 xs:py-12 text-center">
+                    <div className="flex flex-col items-center justify-center text-gray-400">
+                      <i className='bx bx-package text-4xl xs:text-5xl mb-3'></i>
+                      <p className="text-sm xs:text-base font-medium">Tidak ada item sold out</p>
+                      <p className="text-xs xs:text-sm mt-1">Coba ubah tanggal atau kata kunci pencarian</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
