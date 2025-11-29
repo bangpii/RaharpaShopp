@@ -1,4 +1,4 @@
-// Api_chat.js - DIPERBAIKI LENGKAP
+// Api_chat.js - DITAMBAHKAN FUNGSI UPLOAD
 import {
     io
 } from 'socket.io-client';
@@ -34,6 +34,72 @@ const fetchWithTimeout = async (url, options = {}, timeout = 15000) => {
     } catch (error) {
         clearTimeout(id);
         console.error(`❌ Fetch error for ${url}:`, error);
+        throw error;
+    }
+};
+
+// Upload file
+export const uploadFile = async (file) => {
+    try {
+        console.log('📎 Uploading file:', file.name);
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`${BASE_URL}/api/chat/upload`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!response.ok) {
+            throw new Error(`Upload failed with status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('✅ File uploaded successfully:', data);
+        return data;
+    } catch (error) {
+        console.error('❌ Error uploading file:', error);
+        throw error;
+    }
+};
+
+// Send message dengan file
+export const sendMessageWithFile = async (chatId, userId, messageData, file = null) => {
+    try {
+        if (!chatId || !userId) {
+            throw new Error('Chat ID and User ID are required');
+        }
+
+        console.log('📤 Sending message with file via API:', {
+            chatId,
+            userId,
+            messageData,
+            hasFile: !!file
+        });
+
+        const formData = new FormData();
+        formData.append('message', messageData.message || '');
+        formData.append('sender', messageData.sender);
+
+        if (file) {
+            formData.append('file', file);
+        }
+
+        const response = await fetch(`${BASE_URL}/api/chat/${chatId}/send/${userId}`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('✅ Message with file sent successfully via API');
+        return data.data;
+    } catch (error) {
+        console.error('❌ Error sending message with file via API:', error);
         throw error;
     }
 };
@@ -418,6 +484,8 @@ export default {
     getOrCreateUserChat,
     getChatMessages,
     sendMessage,
+    sendMessageWithFile,
+    uploadFile,
     updateOnlineStatus,
     initializeChatSocket,
     setupChatSocketListeners,

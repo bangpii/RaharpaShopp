@@ -1,9 +1,10 @@
 // components/user/ChatRoom.jsx - VERSI DIPERBAIKI
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import "boxicons/css/boxicons.min.css";
 import { 
   getOrCreateUserChat, 
   sendMessage, 
+  sendMessageWithFile,
   initializeChatSocket, 
   setupChatSocketListeners,
   joinChatRoom,
@@ -19,6 +20,7 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
   const [isSending, setIsSending] = useState(false);
   const [chatId, setChatId] = useState(null);
   const [adminTyping, setAdminTyping] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const chatSocket = useRef(null);
@@ -33,26 +35,8 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
     scrollToBottom();
   }, [messages]);
 
-  // Load chat ketika userData tersedia
-  useEffect(() => {
-    if (userData && userData.id) {
-      console.log('🚀 Initializing chat for user:', userData.id);
-      loadUserChat();
-      initializeChatSocketConnection();
-    }
-
-    return () => {
-      if (chatSocket.current) {
-        console.log('🧹 Cleaning up chat socket');
-        cleanupChatSocket(chatSocket.current);
-        if (chatSocket.current.connected) {
-          chatSocket.current.disconnect();
-        }
-      }
-    };
-  }, [userData]);
-
-  const initializeChatSocketConnection = () => {
+  // Initialize chat socket connection dengan useCallback
+  const initializeChatSocketConnection = useCallback(() => {
     if (!userData?.id) {
       console.log('❌ Cannot initialize socket: No user ID');
       return;
@@ -69,63 +53,73 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
 
       chatSocket.current = newSocket;
 
-      // Tunggu sampai socket connected sebelum setup listeners
-      newSocket.on('connect', () => {
-        console.log('✅ Socket connected, setting up listeners...');
-        
-        setupChatSocketListeners(newSocket, {
-          onNewMessage: (data) => {
-            console.log('📨 New message received in user chat:', data);
+      // Setup listeners langsung tanpa menunggu connect
+      console.log('🎧 Setting up socket listeners immediately...');
+      setupChatSocketListeners(newSocket, {
+        onNewMessage: (data) => {
+          console.log('📨 New message received in user chat:', data);
+          
+          // Pastikan data ada dan relevan dengan chat ini
+          if (data && (data.chatId === chatId || data.userId === userData.id)) {
+            console.log('✅ Adding new message to chat:', data.message);
             
-            // Pastikan data ada dan relevan dengan chat ini
-            if (data && (data.chatId === chatId || data.userId === userData.id)) {
-              console.log('✅ Adding new message to chat:', data.message);
-              setMessages(prev => [...prev, {
-                id: Date.now().toString(),
-                sender: data.sender,
-                message: data.message,
-                time: new Date().toLocaleTimeString('id-ID', { 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
-                }),
-                read: true
-              }]);
-              
-              if (data.sender === 'admin') {
-                showNotification('Admin mengirim pesan baru', data.message);
-              }
-            } else {
-              console.log('❌ Message not relevant for this chat:', {
-                messageChatId: data?.chatId,
-                currentChatId: chatId,
-                messageUserId: data?.userId,
-                currentUserId: userData.id
-              });
+            // Tambahkan message langsung tanpa delay
+            const newMsg = {
+              id: Date.now().toString(),
+              sender: data.sender,
+              message: data.message,
+              time: new Date().toLocaleTimeString('id-ID', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+              }),
+              read: true,
+              fileUrl: data.fileUrl || null,
+              fileName: data.fileName || null,
+              fileType: data.fileType || null
+            };
+            
+            setMessages(prev => [...prev, newMsg]);
+            
+            if (data.sender === 'admin') {
+              showNotification('Admin mengirim pesan baru', data.message);
             }
-          },
-          onUserTyping: (data) => {
-            console.log('⌨️ Typing indicator received:', data);
-            if (data.userId === 'admin') {
-              setAdminTyping(data.isTyping);
-              console.log('👨‍💼 Admin typing:', data.isTyping);
-            }
-          },
-          onUserOnline: (data) => {
-            console.log('🟢 User online:', data);
-          },
-          onUserOffline: (data) => {
-            console.log('🔴 User offline:', data);
-          },
-          onChatUpdated: (data) => {
-            console.log('🔄 Chat updated:', data);
-          },
-          onError: (error) => {
-            console.error('❌ Socket error:', error);
+          } else {
+            console.log('❌ Message not relevant for this chat:', {
+              messageChatId: data?.chatId,
+              currentChatId: chatId,
+              messageUserId: data?.userId,
+              currentUserId: userData.id
+            });
           }
-        });
+        },
+        onUserTyping: (data) => {
+          console.log('⌨️ Typing indicator received:', data);
+          if (data.userId === 'admin') {
+            setAdminTyping(data.isTyping);
+            console.log('👨‍💼 Admin typing:', data.isTyping);
+          }
+        },
+        onUserOnline: (data) => {
+          console.log('🟢 User online:', data);
+        },
+        onUserOffline: (data) => {
+          console.log('🔴 User offline:', data);
+        },
+        onChatUpdated: (data) => {
+          console.log('🔄 Chat updated:', data);
+        },
+        onError: (error) => {
+          console.error('❌ Socket error:', error);
+        }
+      });
 
-        // Join user room setelah socket connected
-        console.log('🚪 Joining user room:', userData.id);
+      // Join user room segera
+      console.log('🚪 Joining user room immediately:', userData.id);
+      joinChatRoom(newSocket, userData.id, 'user');
+
+      newSocket.on('connect', () => {
+        console.log('✅ Socket connected successfully');
+        // Re-join room setelah connected
         joinChatRoom(newSocket, userData.id, 'user');
       });
 
@@ -136,9 +130,10 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
     } catch (error) {
       console.error('❌ Failed to initialize chat socket:', error);
     }
-  };
+  }, [userData, chatId]);
 
-  const loadUserChat = async () => {
+  // Load user chat dengan useCallback
+  const loadUserChat = useCallback(async () => {
     if (!userData?.id) {
       console.log('❌ Cannot load chat: No user ID');
       return;
@@ -152,12 +147,6 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
       console.log('✅ Chat data loaded:', chatData);
       setChatId(chatData.chatId);
       setMessages(chatData.messages || []);
-      
-      // Join room lagi setelah chatId tersedia
-      if (chatSocket.current && chatSocket.current.connected) {
-        console.log('🔄 Re-joining user room with chatId:', chatData.chatId);
-        joinChatRoom(chatSocket.current, userData.id, 'user');
-      }
       
     } catch (error) {
       console.error('❌ Error loading chat:', error);
@@ -177,7 +166,26 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [userData]);
+
+  // Load chat ketika userData tersedia
+  useEffect(() => {
+    if (userData && userData.id) {
+      console.log('🚀 Initializing chat for user:', userData.id);
+      loadUserChat();
+      initializeChatSocketConnection();
+    }
+
+    return () => {
+      if (chatSocket.current) {
+        console.log('🧹 Cleaning up chat socket');
+        cleanupChatSocket(chatSocket.current);
+        if (chatSocket.current.connected) {
+          chatSocket.current.disconnect();
+        }
+      }
+    };
+  }, [userData, loadUserChat, initializeChatSocketConnection]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -198,7 +206,7 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
       console.log('📤 Sending message:', messageText);
       setIsSending(true);
       
-      // Add message optimistically
+      // Add message optimistically - TANPA DELAY
       const tempMessage = {
         id: `temp-${Date.now()}`,
         sender: 'user',
@@ -207,8 +215,7 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
           hour: '2-digit', 
           minute: '2-digit' 
         }),
-        read: false,
-        isSending: true
+        read: false
       };
       
       setMessages(prev => [...prev, tempMessage]);
@@ -227,26 +234,26 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
 
       console.log('📦 Message payload:', messagePayload);
       
-      // Send via API
+      // Send via API - REAL TIME
       console.log('🌐 Sending via API...');
       await sendMessage(chatId, userData.id, {
         message: messageText,
         sender: 'user'
       });
       
-      // Send via socket juga
-      if (chatSocket.current && chatSocket.current.connected) {
+      // Send via socket juga - REAL TIME
+      if (chatSocket.current) {
         console.log('🔌 Sending via socket...');
         sendMessageViaSocket(chatSocket.current, messagePayload);
       } else {
         console.log('⚠️ Socket not available for sending');
       }
       
-      // Remove temporary flag
+      // Remove temporary flag langsung
       setMessages(prev => 
         prev.map(msg => 
           msg.id === tempMessage.id 
-            ? { ...msg, isSending: false }
+            ? { ...msg, id: `confirmed-${Date.now()}` }
             : msg
         )
       );
@@ -259,11 +266,117 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
       
       // Remove failed message
       setMessages(prev => 
-        prev.filter(msg => !msg.isSending)
+        prev.filter(msg => msg.id !== `temp-${Date.now()}`)
       );
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleFileUpload = async (file) => {
+    if (!file || !chatId || !userData?.id) {
+      console.log('❌ Cannot upload file: Missing required data');
+      return;
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Hanya file gambar (JPG, JPEG, PNG, GIF, WEBP) yang diizinkan!');
+      return;
+    }
+    
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Ukuran file maksimal 5MB!');
+      return;
+    }
+
+    try {
+      setUploadingFile(true);
+      
+      // Add temporary message untuk file
+      const tempMessage = {
+        id: `file-temp-${Date.now()}`,
+        sender: 'user',
+        message: `Mengupload file: ${file.name}`,
+        time: new Date().toLocaleTimeString('id-ID', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }),
+        read: false,
+        fileUrl: null,
+        fileName: file.name,
+        fileType: file.type,
+        isUploading: true
+      };
+      
+      setMessages(prev => [...prev, tempMessage]);
+      
+      // Upload file dan kirim message
+      console.log('📎 Uploading file:', file.name);
+      const result = await sendMessageWithFile(
+        chatId, 
+        userData.id, 
+        {
+          message: `[File: ${file.name}]`,
+          sender: 'user'
+        },
+        file
+      );
+      
+      console.log('✅ File uploaded successfully:', result);
+      
+      // Update message dengan file URL
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === tempMessage.id 
+            ? { 
+                ...msg, 
+                id: `file-confirmed-${Date.now()}`,
+                fileUrl: result.message?.fileUrl || `/uploads/chat/${file.name}`,
+                isUploading: false
+              }
+            : msg
+        )
+      );
+      
+      // Kirim via socket juga
+      if (chatSocket.current) {
+        const messagePayload = {
+          chatId,
+          userId: userData.id,
+          message: `[File: ${file.name}]`,
+          sender: 'user',
+          fileUrl: result.message?.fileUrl || `/uploads/chat/${file.name}`,
+          fileName: file.name,
+          fileType: file.type
+        };
+        sendMessageViaSocket(chatSocket.current, messagePayload);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error uploading file:', error);
+      alert('Gagal mengupload file. Silakan coba lagi.');
+      
+      // Remove failed file message
+      setMessages(prev => 
+        prev.filter(msg => !msg.isUploading)
+      );
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const handleFileButtonClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      handleFileUpload(file);
+    }
+    // Reset input
+    event.target.value = '';
   };
 
   const handleTyping = (typing) => {
@@ -292,28 +405,60 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
     }
   };
 
-  const handleFileButtonClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-      if (!allowedTypes.includes(file.type)) {
-        alert('Hanya file JPG, JPEG, dan PNG yang diizinkan!');
-        return;
-      }
-      
-      if (file.size > 5 * 1024 * 1024) {
-        alert('Ukuran file maksimal 5MB!');
-        return;
-      }
-      
-      console.log('File yang dipilih:', file.name);
-      // Di sini bisa tambahkan logic untuk upload file
-      alert('Fitur upload file akan segera tersedia!');
+  const renderMessageContent = (msg) => {
+    if (msg.fileUrl && msg.fileName) {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs xs:text-sm sm:text-base break-words">
+            {msg.message}
+          </p>
+          <div className="bg-white/50 rounded-xl p-2 border border-amber-200">
+            {msg.fileType?.startsWith('image/') ? (
+              <div className="space-y-2">
+                <img 
+                  src={`https://serverraharpashopp-production-f317.up.railway.app${msg.fileUrl}`} 
+                  alt={msg.fileName}
+                  className="max-w-full h-auto rounded-lg max-h-48 object-cover"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'block';
+                  }}
+                />
+                <div className="hidden bg-amber-50 rounded-lg p-4 text-center">
+                  <i className="bx bx-image text-2xl text-amber-600 mb-2"></i>
+                  <p className="text-xs text-amber-700 break-words">{msg.fileName}</p>
+                  <p className="text-[10px] text-amber-600 mt-1">Gambar tidak dapat dimuat</p>
+                </div>
+                {msg.isUploading && (
+                  <div className="flex items-center gap-2 text-xs text-amber-600">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-amber-600"></div>
+                    Mengupload...
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 p-2">
+                <i className="bx bx-file text-2xl text-amber-600"></i>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-amber-800 truncate">
+                    {msg.fileName}
+                  </p>
+                  <p className="text-[10px] text-amber-600">
+                    File attachment
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
     }
+    
+    return (
+      <p className="text-xs xs:text-sm sm:text-base break-words">
+        {msg.message}
+      </p>
+    );
   };
 
   const showNotification = (title, body) => {
@@ -342,11 +487,12 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
       messagesCount: messages.length,
       isLoading,
       isSending,
+      uploadingFile,
       adminTyping,
       userData: userData ? { id: userData.id, name: userData.name } : null,
       socketConnected: chatSocket.current?.connected || false
     });
-  }, [chatId, messages, isLoading, isSending, adminTyping, userData]);
+  }, [chatId, messages, isLoading, isSending, uploadingFile, adminTyping, userData]);
 
   return (
     <div className="w-full h-full flex flex-col bg-white rounded-2xl border border-amber-100 
@@ -503,8 +649,7 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
                   {msg.sender === 'admin' && (
                     <div className="w-8 h-8 xs:w-10 xs:h-10 sm:w-12 sm:h-12 rounded-2xl 
                                    bg-gradient-to-br from-gray-400 to-gray-600 
-                                   shadow-[0_4px_12px_rgba(0,0,0,0.2),inset_0_1px_2px_rgba(255,255,255,0.3)]
-                                   flex items-center justify-center text-white shadow-lg flex-shrink-0
+                                   flex items-center justify-center text-white flex-shrink-0
                                    max-[470px]:w-7 max-[470px]:h-7
                                    max-[440px]:w-7 max-[440px]:h-7
                                    max-[420px]:w-7 max-[420px]:h-7
@@ -528,15 +673,15 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
                                  max-[401px]:text-[9px] max-[401px]:mb-0
                                  max-[400px]:text-[10px] max-[400px]:mb-0.5 max-[380px]:text-[9px] max-[380px]:mb-0">
                       {msg.sender === 'admin' ? 'Admin' : 'You'} • {msg.time}
-                      {msg.isSending && (
-                        <span className="text-amber-600 text-xs ml-1">mengirim...</span>
+                      {msg.isUploading && (
+                        <span className="text-amber-600 text-xs ml-1">mengupload...</span>
                       )}
                     </p>
                     <div className={`${msg.sender === 'user' 
                       ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-2xl rounded-tr-none' 
                       : 'bg-gradient-to-r from-gray-50 to-gray-100 text-gray-800 border border-gray-200 rounded-2xl rounded-tl-none'
                     } px-2 py-1.5 xs:px-3 xs:py-2 sm:px-4 sm:py-3 
-                    shadow-[0_4px_12px_rgba(0,0,0,0.1),inset_0_1px_2px_rgba(255,255,255,0.8)]
+                    shadow-lg
                     transform transition-all duration-300 
                     hover:shadow-[0_6px_20px_rgba(0,0,0,0.15),inset_0_1px_2px_rgba(255,255,255,0.9)] 
                     inline-block max-w-[80%] xs:max-w-[85%] sm:max-w-xs
@@ -546,22 +691,14 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
                     max-[401px]:max-w-[94%] max-[401px]:px-1.5 max-[401px]:py-1
                     max-[400px]:max-w-[calc(100%-10px)] max-[400px]:px-2 max-[400px]:py-1.5
                     max-[380px]:max-w-[calc(100%-8px)] max-[380px]:px-1.5 max-[380px]:py-1 max-[380px]:rounded-xl`}>
-                      <p className="text-xs xs:text-sm sm:text-base 
-                                   max-[470px]:text-xs max-[470px]:leading-tight
-                                   max-[440px]:text-xs max-[440px]:leading-tight
-                                   max-[420px]:text-xs max-[420px]:leading-tight
-                                   max-[401px]:text-[11px] max-[401px]:leading-tight
-                                   max-[400px]:text-xs max-[400px]:leading-tight max-[380px]:text-[11px] max-[380px]:leading-tight">
-                        {msg.message}
-                      </p>
+                      {renderMessageContent(msg)}
                     </div>
                   </div>
 
                   {msg.sender === 'user' && (
                     <div className="w-8 h-8 xs:w-10 xs:h-10 sm:w-12 sm:h-12 rounded-2xl 
                                    bg-gradient-to-br from-amber-600 to-amber-700 
-                                   shadow-[0_4px_12px_rgba(186,118,48,0.3),inset_0_1px_2px_rgba(255,255,255,0.3)]
-                                   flex items-center justify-center text-white shadow-lg flex-shrink-0
+                                   flex items-center justify-center text-white flex-shrink-0
                                    max-[470px]:w-7 max-[470px]:h-7
                                    max-[440px]:w-7 max-[440px]:h-7
                                    max-[420px]:w-7 max-[420px]:h-7
@@ -590,7 +727,6 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
                              max-[400px]:gap-2 max-[380px]:gap-1.5">
                 <div className="w-8 h-8 xs:w-10 xs:h-10 sm:w-12 sm:h-12 rounded-2xl 
                                bg-gradient-to-br from-gray-400 to-gray-600 
-                               shadow-[0_4px_12px_rgba(0,0,0,0.2),inset_0_1px_2px_rgba(255,255,255,0.3)]
                                flex items-center justify-center text-white shadow-lg flex-shrink-0
                                max-[470px]:w-7 max-[470px]:h-7
                                max-[440px]:w-7 max-[440px]:h-7
@@ -603,7 +739,7 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
                 <div className="flex-1 min-w-0">
                   <div className="bg-gradient-to-r from-gray-50 to-gray-100 text-gray-800 
                                  px-4 py-3 rounded-2xl rounded-tl-none 
-                                 shadow-[0_4px_12px_rgba(0,0,0,0.1),inset_0_1px_2px_rgba(255,255,255,0.8)]
+                                 shadow-lg
                                  border border-gray-200 inline-block">
                     <div className="flex space-x-1">
                       <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
@@ -644,20 +780,22 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
-            accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+            accept=".jpg,.jpeg,.png,.gif,.webp,image/jpeg,image/png,image/gif,image/webp"
             className="hidden"
+            disabled={uploadingFile || isSending || !userData}
           />
           
           {/* File Upload Button */}
           <button 
             type="button"
             onClick={handleFileButtonClick}
+            disabled={uploadingFile || isSending || !userData}
             className="w-8 h-8 xs:w-10 xs:h-10 sm:w-12 sm:h-12 flex items-center justify-center 
                        rounded-2xl bg-white text-amber-600 
                        shadow-[0_4px_12px_rgba(186,118,48,0.2),inset_0_1px_2px_rgba(255,255,255,0.8)]
                        transform transition-all duration-300 hover:scale-110 hover:bg-amber-50 
                        hover:shadow-[0_6px_16px_rgba(186,118,48,0.3),inset_0_1px_2px_rgba(255,255,255,0.9)] 
-                       flex-shrink-0
+                       flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
                        max-[470px]:w-8 max-[470px]:h-8
                        max-[440px]:w-8 max-[440px]:h-8
                        max-[420px]:w-8 max-[420px]:h-8
@@ -665,12 +803,16 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
                        max-[400px]:w-7 max-[400px]:h-7
                        max-[380px]:w-6 max-[380px]:h-6 max-[380px]:rounded-lg"
           >
-            <i className="bx bx-plus text-lg xs:text-xl sm:text-2xl 
+            {uploadingFile ? (
+              <div className="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <i className="bx bx-paperclip text-lg xs:text-xl sm:text-2xl 
                          max-[470px]:text-base
                          max-[440px]:text-base
                          max-[420px]:text-base
                          max-[401px]:text-sm
                          max-[400px]:text-sm max-[380px]:text-xs"></i>
+            )}
           </button>
           
           {/* Message Input */}
@@ -696,13 +838,13 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
                        max-[401px]:px-1.5 max-[401px]:py-1 max-[401px]:text-[11px]
                        max-[400px]:px-2 max-[400px]:py-1.5 max-[400px]:text-xs
                        max-[380px]:px-1.5 max-[380px]:py-1 max-[380px]:text-[11px] max-[380px]:rounded-lg"
-            disabled={isSending || !userData}
+            disabled={isSending || uploadingFile || !userData}
           />
           
           {/* Send Button */}
           <button 
             type="submit"
-            disabled={!newMessage.trim() || isSending || !userData}
+            disabled={!newMessage.trim() || isSending || uploadingFile || !userData}
             className="w-8 h-8 xs:w-10 xs:h-10 sm:w-12 sm:h-12 flex items-center justify-center 
                             rounded-2xl bg-gradient-to-r from-amber-600 to-amber-700 text-white 
                             shadow-[0_4px_12px_rgba(186,118,48,0.3),inset_0_1px_2px_rgba(255,255,255,0.2)]
@@ -738,7 +880,10 @@ const ChatRoom = ({ showWishlist, setShowWishlist, userData }) => {
                      max-[401px]:text-[9px] max-[401px]:mt-1.5
                      max-[400px]:text-[9px] max-[400px]:mt-2
                      max-[380px]:text-[8px] max-[380px]:mt-1">
-          Support: JPG, PNG (Max 5MB)
+          Support: JPG, PNG, GIF, WEBP (Max 5MB)
+          {(isSending || uploadingFile) && (
+            <span className="text-amber-600 ml-1">• Mengirim...</span>
+          )}
         </p>
       </div>
 

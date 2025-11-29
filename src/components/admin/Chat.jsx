@@ -1,9 +1,10 @@
 // components/admin/Chat.jsx - DIPERBAIKI
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   getAllChats, 
   getChatMessages, 
   sendMessage, 
+  sendMessageWithFile,
   initializeChatSocket, 
   setupChatSocketListeners,
   joinChatRoom,
@@ -22,10 +23,12 @@ const Chat = ({ onNavigate }) => {
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
   const [userTyping, setUserTyping] = useState({});
   const chatSocket = useRef(null);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // Check screen size
   useEffect(() => {
@@ -41,46 +44,18 @@ const Chat = ({ onNavigate }) => {
     };
   }, []);
 
-  // Load chats dan initialize socket
-  useEffect(() => {
-    loadChats();
-    initializeChatSocketConnection();
-
-    return () => {
-      if (chatSocket.current) {
-        cleanupChatSocket(chatSocket.current);
-        if (chatSocket.current.close) {
-          chatSocket.current.close();
-        }
-      }
-    };
-  }, []);
-
-  // Load messages ketika chat dipilih
-  useEffect(() => {
-    if (selectedChat !== null && chats[selectedChat]) {
-      loadChatMessages(chats[selectedChat].id);
-    }
-  }, [selectedChat, chats]);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const initializeChatSocketConnection = () => {
+  // Initialize chat socket connection dengan useCallback
+  const initializeChatSocketConnection = useCallback(() => {
     try {
       const newSocket = initializeChatSocket();
       chatSocket.current = newSocket;
 
+      // Setup listeners langsung
       setupChatSocketListeners(newSocket, {
         onNewMessage: (data) => {
           console.log('📨 New message received in admin:', data);
           
-          // Update chats list
+          // Update chats list secara realtime
           setChats(prevChats => {
             const updatedChats = prevChats.map(chat => {
               if (chat.userId === data.userId || chat.id === data.chatId) {
@@ -102,10 +77,11 @@ const Chat = ({ onNavigate }) => {
             });
           });
 
-          // Add message to current chat jika chat yang aktif
+          // Add message to current chat secara realtime
           if (selectedChat !== null && chats[selectedChat] && 
               (chats[selectedChat].userId === data.userId || chats[selectedChat].id === data.chatId)) {
-            setMessages(prev => [...prev, {
+            
+            const newMsg = {
               id: Date.now().toString(),
               sender: data.sender,
               message: data.message,
@@ -113,8 +89,13 @@ const Chat = ({ onNavigate }) => {
                 hour: '2-digit', 
                 minute: '2-digit' 
               }),
-              read: true
-            }]);
+              read: true,
+              fileUrl: data.fileUrl || null,
+              fileName: data.fileName || null,
+              fileType: data.fileType || null
+            };
+            
+            setMessages(prev => [...prev, newMsg]);
 
             // Show notification
             showNotification(`Pesan baru dari ${data.userName}`, data.message);
@@ -165,15 +146,16 @@ const Chat = ({ onNavigate }) => {
         }
       });
 
-      // Join admin room
+      // Join admin room segera
       joinChatRoom(newSocket, null, 'admin');
 
     } catch (error) {
       console.error('❌ Failed to initialize chat socket:', error);
     }
-  };
+  }, [selectedChat, chats]);
 
-  const loadChats = async () => {
+  // Load chats
+  const loadChats = useCallback(async () => {
     try {
       setIsLoading(true);
       const chatsData = await getAllChats();
@@ -185,7 +167,37 @@ const Chat = ({ onNavigate }) => {
     } finally {
       setIsLoading(false);
     }
+  }, []);
+
+  // Load chats dan initialize socket
+  useEffect(() => {
+    loadChats();
+    initializeChatSocketConnection();
+
+    return () => {
+      if (chatSocket.current) {
+        cleanupChatSocket(chatSocket.current);
+        if (chatSocket.current.close) {
+          chatSocket.current.close();
+        }
+      }
+    };
+  }, [loadChats, initializeChatSocketConnection]);
+
+  // Load messages ketika chat dipilih
+  useEffect(() => {
+    if (selectedChat !== null && chats[selectedChat]) {
+      loadChatMessages(chats[selectedChat].id);
+    }
+  }, [selectedChat, chats]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   const loadChatMessages = async (chatId) => {
     if (!chatId) return;
@@ -213,7 +225,7 @@ const Chat = ({ onNavigate }) => {
     try {
       setIsSending(true);
       
-      // Add message optimistically
+      // Add message optimistically - TANPA DELAY
       const tempMessage = {
         id: `temp-${Date.now()}`,
         sender: 'admin',
@@ -222,8 +234,7 @@ const Chat = ({ onNavigate }) => {
           hour: '2-digit', 
           minute: '2-digit' 
         }),
-        read: true,
-        isSending: true
+        read: true
       };
       
       setMessages(prev => [...prev, tempMessage]);
@@ -232,13 +243,13 @@ const Chat = ({ onNavigate }) => {
       // Stop typing indicator
       handleTyping(false);
       
-      // Send via API
+      // Send via API - REAL TIME
       await sendMessage(currentChat.id, currentChat.userId, {
         message: messageText,
         sender: 'admin'
       });
       
-      // Send via socket
+      // Send via socket - REAL TIME
       if (chatSocket.current) {
         sendMessageViaSocket(chatSocket.current, {
           chatId: currentChat.id,
@@ -262,11 +273,11 @@ const Chat = ({ onNavigate }) => {
         )
       );
       
-      // Remove temporary flag
+      // Remove temporary flag langsung
       setMessages(prev => 
         prev.map(msg => 
           msg.id === tempMessage.id 
-            ? { ...msg, isSending: false }
+            ? { ...msg, id: `confirmed-${Date.now()}` }
             : msg
         )
       );
@@ -277,11 +288,133 @@ const Chat = ({ onNavigate }) => {
       
       // Remove failed message
       setMessages(prev => 
-        prev.filter(msg => !msg.isSending)
+        prev.filter(msg => msg.id !== `temp-${Date.now()}`)
       );
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleFileUpload = async (file) => {
+    if (!file || !chats[selectedChat]) {
+      console.log('❌ Cannot upload file: No chat selected');
+      return;
+    }
+
+    const currentChat = chats[selectedChat];
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    
+    if (!allowedTypes.includes(file.type)) {
+      alert('Hanya file gambar (JPG, JPEG, PNG, GIF, WEBP) yang diizinkan!');
+      return;
+    }
+    
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Ukuran file maksimal 5MB!');
+      return;
+    }
+
+    try {
+      setUploadingFile(true);
+      
+      // Add temporary message untuk file
+      const tempMessage = {
+        id: `file-temp-${Date.now()}`,
+        sender: 'admin',
+        message: `Mengupload file: ${file.name}`,
+        time: new Date().toLocaleTimeString('id-ID', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }),
+        read: true,
+        fileUrl: null,
+        fileName: file.name,
+        fileType: file.type,
+        isUploading: true
+      };
+      
+      setMessages(prev => [...prev, tempMessage]);
+      
+      // Upload file dan kirim message
+      console.log('📎 Uploading file as admin:', file.name);
+      const result = await sendMessageWithFile(
+        currentChat.id, 
+        currentChat.userId, 
+        {
+          message: `[File: ${file.name}]`,
+          sender: 'admin'
+        },
+        file
+      );
+      
+      console.log('✅ File uploaded successfully:', result);
+      
+      // Update message dengan file URL
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === tempMessage.id 
+            ? { 
+                ...msg, 
+                id: `file-confirmed-${Date.now()}`,
+                fileUrl: result.message?.fileUrl || `/uploads/chat/${file.name}`,
+                isUploading: false
+              }
+            : msg
+        )
+      );
+      
+      // Update chats list
+      setChats(prevChats => 
+        prevChats.map(chat => 
+          chat.id === currentChat.id 
+            ? { 
+                ...chat, 
+                lastMessage: `[File] ${file.name}`,
+                time: 'Baru saja',
+                unread: 0
+              }
+            : chat
+        )
+      );
+      
+      // Kirim via socket juga
+      if (chatSocket.current) {
+        const messagePayload = {
+          chatId: currentChat.id,
+          userId: currentChat.userId,
+          message: `[File: ${file.name}]`,
+          sender: 'admin',
+          fileUrl: result.message?.fileUrl || `/uploads/chat/${file.name}`,
+          fileName: file.name,
+          fileType: file.type
+        };
+        sendMessageViaSocket(chatSocket.current, messagePayload);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error uploading file:', error);
+      alert('Gagal mengupload file. Silakan coba lagi.');
+      
+      // Remove failed file message
+      setMessages(prev => 
+        prev.filter(msg => !msg.isUploading)
+      );
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const handleFileButtonClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      handleFileUpload(file);
+    }
+    // Reset input
+    event.target.value = '';
   };
 
   const handleTyping = (typing) => {
@@ -328,6 +461,60 @@ const Chat = ({ onNavigate }) => {
     if (onNavigate) {
       onNavigate('Chat');
     }
+  };
+
+  const renderMessageContent = (msg) => {
+    if (msg.fileUrl && msg.fileName) {
+      return (
+        <div className="space-y-2">
+          <p className="text-sm xs:text-base break-words">
+            {msg.message}
+          </p>
+          <div className="bg-white/50 rounded-xl p-2 border border-amber-200">
+            {msg.fileType?.startsWith('image/') ? (
+              <div className="space-y-2">
+                <img 
+                  src={`https://serverraharpashopp-production-f317.up.railway.app${msg.fileUrl}`} 
+                  alt={msg.fileName}
+                  className="max-w-full h-auto rounded-lg max-h-48 object-cover"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'block';
+                  }}
+                />
+                <div className="hidden bg-amber-50 rounded-lg p-4 text-center">
+                  <i className="bx bx-image text-2xl text-amber-600 mb-2"></i>
+                  <p className="text-xs text-amber-700 break-words">{msg.fileName}</p>
+                  <p className="text-[10px] text-amber-600 mt-1">Gambar tidak dapat dimuat</p>
+                </div>
+                {msg.isUploading && (
+                  <div className="flex items-center gap-2 text-xs text-amber-600">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-amber-600"></div>
+                    Mengupload...
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 p-2">
+                <i className="bx bx-file text-2xl text-amber-600"></i>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-amber-800 truncate">
+                    {msg.fileName}
+                  </p>
+                  <p className="text-[10px] text-amber-600">
+                    File attachment
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+    
+    return (
+      <p className="text-sm xs:text-base break-words">{msg.message}</p>
+    );
   };
 
   const showNotification = (title, body) => {
@@ -586,8 +773,8 @@ const Chat = ({ onNavigate }) => {
                             <div className={`mb-1 ${msg.sender === 'admin' ? 'text-right' : 'text-left'}`}>
                               <span className="text-xs font-semibold text-gray-600">
                                 {msg.sender === 'admin' ? 'Anda' : currentChat.name}
-                                {msg.isSending && (
-                                  <span className="text-amber-600 text-xs ml-1">mengirim...</span>
+                                {msg.isUploading && (
+                                  <span className="text-amber-600 text-xs ml-1">mengupload...</span>
                                 )}
                               </span>
                             </div>
@@ -596,7 +783,7 @@ const Chat = ({ onNavigate }) => {
                                             ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-br-none' 
                                             : 'bg-white text-gray-800 border border-amber-100 rounded-bl-none'
                                           }`}>
-                              <p className="text-sm xs:text-base break-words">{msg.message}</p>
+                              {renderMessageContent(msg)}
                               <p className={`text-xs mt-1 ${msg.sender === 'admin' ? 'text-amber-100' : 'text-gray-500'}`}>
                                 {msg.time}
                               </p>
@@ -647,7 +834,34 @@ const Chat = ({ onNavigate }) => {
             {/* Input Area */}
             {currentChat && (
               <div className="p-3 xs:p-4 border-t border-amber-100 bg-white rounded-b-xl">
+                {/* Hidden File Input */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept=".jpg,.jpeg,.png,.gif,.webp,image/jpeg,image/png,image/gif,image/webp"
+                  className="hidden"
+                  disabled={uploadingFile || isSending}
+                />
+                
                 <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                  {/* File Upload Button */}
+                  <button 
+                    type="button"
+                    onClick={handleFileButtonClick}
+                    disabled={uploadingFile || isSending}
+                    className="p-2 xs:p-3 rounded-xl bg-amber-100 text-amber-600 
+                             hover:bg-amber-200 transition-colors duration-200
+                             disabled:opacity-50 disabled:cursor-not-allowed
+                             flex items-center justify-center"
+                  >
+                    {uploadingFile ? (
+                      <div className="w-5 h-5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <i className='bx bx-paperclip text-lg xs:text-xl'></i>
+                    )}
+                  </button>
+                  
                   <div className="flex-1">
                     <input
                       type="text"
@@ -666,12 +880,12 @@ const Chat = ({ onNavigate }) => {
                                focus:ring-2 focus:ring-amber-500 focus:border-transparent
                                bg-amber-50 hover:bg-white transition-colors duration-200
                                text-sm xs:text-base placeholder-gray-400"
-                      disabled={isSending}
+                      disabled={isSending || uploadingFile}
                     />
                   </div>
                   <button 
                     type="submit"
-                    disabled={!newMessage.trim() || isSending}
+                    disabled={!newMessage.trim() || isSending || uploadingFile}
                     className="p-2 xs:p-3 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 
                              text-white hover:from-amber-700 hover:to-amber-800 transition-all duration-200
                              shadow-[0_4px_12px_rgba(186,118,48,0.3)] disabled:opacity-50 disabled:cursor-not-allowed
@@ -684,6 +898,14 @@ const Chat = ({ onNavigate }) => {
                     )}
                   </button>
                 </form>
+                
+                {/* File Type Info */}
+                <p className="text-[10px] xs:text-xs text-gray-500 text-center mt-2">
+                  Support: JPG, PNG, GIF, WEBP (Max 5MB)
+                  {(isSending || uploadingFile) && (
+                    <span className="text-amber-600 ml-1">• Mengirim...</span>
+                  )}
+                </p>
               </div>
             )}
           </div>
