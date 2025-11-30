@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -31,22 +31,87 @@ const Dashboard = () => {
   const [showBarChartModal, setShowBarChartModal] = useState(false);
   const [showDoughnutModal, setShowDoughnutModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [socketStatus, setSocketStatus] = useState('disconnected');
   const socketRef = useRef(null);
+
+  // Hardcode BASE_URL untuk socket
+  const SOCKET_URL = 'https://serverraharpashopp-production-f317.up.railway.app';
+
+  // Data default jika API error
+  const getDefaultData = useCallback(() => ({
+    stats: [
+      { title: "New Orders", value: "0", icon: "bx bx-cart", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
+      { title: "Total Sales", value: "IDR 0", icon: "bx bx-dollar", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
+      { title: "Total Users", value: "0", icon: "bx bx-user", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
+      { title: "Item", value: "0", icon: "bx bx-package", color: "bg-gradient-to-br from-amber-700 to-amber-500" }
+    ],
+    barChartData: [0, 0, 0, 0, 0, 0, 0],
+    doughnutData: [0, 0],
+    recentOrders: []
+  }), []);
+
+  // Fetch dashboard data dengan useCallback untuk menghindari infinite loop
+  const fetchDashboardData = useCallback(async (date) => {
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('📊 Fetching dashboard data for date:', date);
+      
+      const response = await getDashboardData(date);
+      console.log('📦 Dashboard data received:', response);
+      
+      if (response.success) {
+        console.log('✅ Setting dashboard data:', response.data);
+        setDashboardData(response.data);
+      } else {
+        throw new Error(response.message || 'Failed to fetch dashboard data');
+      }
+    } catch (err) {
+      console.error('❌ Error fetching dashboard data:', err);
+      setError('Gagal memuat data dashboard: ' + err.message);
+      // Fallback ke data default
+      setDashboardData(getDefaultData());
+    } finally {
+      setLoading(false);
+    }
+  }, [getDefaultData]);
+
+  // Load data saat component mount atau date berubah
+  useEffect(() => {
+    console.log('🎯 Component mounted, fetching data...');
+    fetchDashboardData(selectedDate);
+  }, [selectedDate, fetchDashboardData]);
 
   // Socket.IO connection untuk real-time updates
   useEffect(() => {
-    const BASE_URL = import.meta.env.VITE_API_BASE_URL;
-    socketRef.current = io(BASE_URL, {
-      transports: ['websocket', 'polling']
+    console.log('🔌 Connecting to Socket.IO:', SOCKET_URL);
+    
+    socketRef.current = io(SOCKET_URL, {
+      transports: ['websocket', 'polling'],
+      timeout: 10000
+    });
+
+    // Socket event handlers
+    socketRef.current.on('connect', () => {
+      console.log('✅ Socket connected');
+      setSocketStatus('connected');
+    });
+
+    socketRef.current.on('welcome', (data) => {
+      console.log('👋 Welcome message:', data);
     });
 
     // Join dashboard room
     socketRef.current.emit('join-dashboard-room');
 
+    socketRef.current.on('dashboard-joined', (data) => {
+      console.log('📊 Dashboard room joined:', data);
+    });
+
     // Listen untuk real-time updates
-    socketRef.current.on('dashboard-update', (data) => {
-      console.log('📊 Real-time dashboard update received:', data);
-      // Refresh data ketika ada update
+    socketRef.current.on('dashboard-update', () => {
+      console.log('🔄 Real-time dashboard update received');
       fetchDashboardData(selectedDate);
     });
 
@@ -69,47 +134,22 @@ const Dashboard = () => {
       });
     });
 
+    socketRef.current.on('connect_error', (err) => {
+      console.error('❌ Socket connection error:', err);
+      setSocketStatus('error');
+    });
+
+    socketRef.current.on('disconnect', (reason) => {
+      console.log('🔌 Socket disconnected:', reason);
+      setSocketStatus('disconnected');
+    });
+
     return () => {
       if (socketRef.current) {
         socketRef.current.disconnect();
       }
     };
-  }, []);
-
-  // Fetch dashboard data
-  const fetchDashboardData = async (date) => {
-    try {
-      setLoading(true);
-      const response = await getDashboardData(date);
-      if (response.success) {
-        setDashboardData(response.data);
-      }
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-      // Fallback ke data default jika error
-      setDashboardData(getDefaultData());
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Data default jika API error
-  const getDefaultData = () => ({
-    stats: [
-      { title: "New Orders", value: "0", icon: "bx bx-cart", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-      { title: "Total Sales", value: "IDR 0", icon: "bx bx-dollar", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-      { title: "Total Users", value: "0", icon: "bx bx-user", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-      { title: "Item", value: "0", icon: "bx bx-package", color: "bg-gradient-to-br from-amber-700 to-amber-500" }
-    ],
-    barChartData: [0, 0, 0, 0, 0, 0, 0],
-    doughnutData: [0, 0],
-    recentOrders: []
-  });
-
-  // Load data saat component mount atau date berubah
-  useEffect(() => {
-    fetchDashboardData(selectedDate);
-  }, [selectedDate]);
+  }, [selectedDate, fetchDashboardData]);
 
   const handleDateClick = () => {
     setShowDatePicker(!showDatePicker);
@@ -120,12 +160,17 @@ const Dashboard = () => {
     setShowDatePicker(false);
   };
 
+  const handleRefresh = () => {
+    console.log('🔄 Manual refresh triggered');
+    fetchDashboardData(selectedDate);
+  };
+
   // Data untuk bar chart (Mingguan)
   const barChartData = {
     labels: ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'],
     datasets: [
       {
-        label: 'Sales',
+        label: 'Sales (IDR)',
         data: dashboardData?.barChartData || [0, 0, 0, 0, 0, 0, 0],
         backgroundColor: 'rgba(180, 83, 9, 0.8)',
         borderColor: 'rgba(180, 83, 9, 1)',
@@ -145,6 +190,13 @@ const Dashboard = () => {
       title: {
         display: false,
       },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            return `IDR ${context.raw.toLocaleString('id-ID')}`;
+          }
+        }
+      }
     },
     scales: {
       y: {
@@ -219,12 +271,29 @@ const Dashboard = () => {
     return date.toLocaleDateString('id-ID', options);
   };
 
+  const getSocketStatusColor = () => {
+    switch(socketStatus) {
+      case 'connected': return 'text-green-500';
+      case 'error': return 'text-red-500';
+      default: return 'text-gray-500';
+    }
+  };
+
+  const getSocketStatusText = () => {
+    switch(socketStatus) {
+      case 'connected': return 'Live';
+      case 'error': return 'Error';
+      default: return 'Offline';
+    }
+  };
+
   if (loading && !dashboardData) {
     return (
       <div className="flex items-center justify-center min-h-96">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-700 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading dashboard data...</p>
+          <p className="text-xs text-gray-500 mt-2">From: {SOCKET_URL}</p>
         </div>
       </div>
     );
@@ -232,8 +301,38 @@ const Dashboard = () => {
 
   const currentData = dashboardData || getDefaultData();
 
+  console.log('🎯 Current data to render:', currentData);
+
   return (
     <div className="space-y-4 xs:space-y-6 overflow-x-hidden md:overflow-x-visible">
+      {/* Debug Info */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs hidden">
+        <div className="flex justify-between items-center">
+          <div>
+            <strong>Debug Info:</strong> 
+            <span className="ml-2">Data: {dashboardData ? '✅ Loaded' : '❌ Null'}</span>
+            <span className="ml-2">Socket: <span className={getSocketStatusColor()}>{getSocketStatusText()}</span></span>
+            <span className="ml-2">Orders: {currentData.recentOrders.length}</span>
+          </div>
+          <button 
+            onClick={handleRefresh}
+            className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+          <div className="flex items-center">
+            <i className='bx bx-error text-red-600 text-lg mr-2'></i>
+            <span className="text-red-700 text-sm">{error}</span>
+          </div>
+        </div>
+      )}
+
       {/* Header dengan Breadcrumb */}
       <div className="flex flex-col">
         {/* Breadcrumb */}
@@ -248,7 +347,10 @@ const Dashboard = () => {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-xl xs:text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-800">DASHBOARD</h1>
-            <p className="text-gray-600 mt-1 text-xs xs:text-sm lg:text-base">Welcome to your admin dashboard</p>
+            <p className="text-gray-600 mt-1 text-xs xs:text-sm lg:text-base">
+              Real-time admin dashboard 
+              <span className={`ml-2 ${getSocketStatusColor()}`}>• {getSocketStatusText()}</span>
+            </p>
           </div>
           
           <div className="relative">
@@ -260,7 +362,6 @@ const Dashboard = () => {
             >
               <div className="text-xs lg:text-sm text-amber-700 text-center md:text-left">
                 {formatDate(selectedDate)}
-                <span className="ml-2 text-amber-500 animate-pulse">• Live</span>
               </div>
             </button>
             
@@ -284,13 +385,22 @@ const Dashboard = () => {
                   className="w-full px-3 py-2 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
                   max={new Date().toISOString().split('T')[0]}
                 />
+                <button
+                  onClick={() => {
+                    setSelectedDate(new Date().toISOString().split('T')[0]);
+                    setShowDatePicker(false);
+                  }}
+                  className="w-full mt-2 px-3 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                >
+                  Hari Ini
+                </button>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats Cards - TAMPILKAN DATA NYA */}
       <div className="grid grid-cols-1 gap-2 xs:grid-cols-2 lg:grid-cols-4 xs:gap-3 lg:gap-4">
         {currentData.stats.map((stat, index) => (
           <div 
@@ -302,7 +412,9 @@ const Dashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-amber-100 text-xs lg:text-sm">{stat.title}</p>
-                <h3 className="text-base xs:text-lg sm:text-xl lg:text-2xl font-bold mt-1 lg:mt-2 text-white">{stat.value}</h3>
+                <h3 className="text-base xs:text-lg sm:text-xl lg:text-2xl font-bold mt-1 lg:mt-2 text-white">
+                  {stat.value}
+                </h3>
               </div>
               <div className="p-1 xs:p-2 lg:p-3 bg-white/25 rounded-xl">
                 <i className={`${stat.icon} text-sm xs:text-base sm:text-lg lg:text-2xl text-amber-100`}></i>
@@ -356,21 +468,18 @@ const Dashboard = () => {
                shadow-[0_10px_30px_rgba(186,118,48,0.1),0_4px_12px_rgba(186,118,48,0.05),inset_0_1px_0_rgba(255,255,255,0.8)]
                border border-amber-100">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 xs:mb-3 sm:mb-4 lg:mb-6 gap-3">
-          <h3 className="text-sm xs:text-base sm:text-lg lg:text-xl font-bold text-gray-800">Recent Orders</h3>
+          <h3 className="text-sm xs:text-base sm:text-lg lg:text-xl font-bold text-gray-800">
+            Recent Orders ({currentData.recentOrders.length})
+          </h3>
           
-          {/* Search Form */}
-          <div className="relative w-full sm:w-64 lg:w-80">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <i className='bx bx-search text-gray-400 text-sm xs:text-base'></i>
-            </div>
-            <input
-              type="text"
-              placeholder="Search orders, users, products..."
-              className="w-full pl-10 pr-4 py-2 xs:py-2.5 lg:py-3 border border-gray-200 rounded-xl 
-                       focus:ring-2 focus:ring-amber-500 focus:border-transparent
-                       bg-gray-50 hover:bg-white transition-colors duration-200
-                       text-xs xs:text-sm lg:text-base placeholder-gray-400"
-            />
+          <div className="flex gap-2">
+            <button
+              onClick={handleRefresh}
+              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors text-sm flex items-center"
+            >
+              <i className='bx bx-refresh mr-2'></i>
+              Refresh
+            </button>
           </div>
         </div>
         
@@ -380,36 +489,16 @@ const Dashboard = () => {
               <thead>
                 <tr className="border-b border-amber-100">
                   <th className="text-left py-1 xs:py-2 lg:py-3 px-1 xs:px-2 lg:px-4 text-gray-600 font-semibold text-xs lg:text-sm whitespace-nowrap w-1/4">
-                    <div className="flex items-center gap-1">
-                      User
-                      <button className="text-gray-400 hover:text-amber-600 flex-shrink-0">
-                        <i className='bx bx-sort text-xs'></i>
-                      </button>
-                    </div>
+                    User
                   </th>
                   <th className="text-left py-1 xs:py-2 lg:py-3 px-1 xs:px-2 lg:px-4 text-gray-600 font-semibold text-xs lg:text-sm whitespace-nowrap w-1/4">
-                    <div className="flex items-center gap-1">
-                      Product
-                      <button className="text-gray-400 hover:text-amber-600 flex-shrink-0">
-                        <i className='bx bx-sort text-xs'></i>
-                      </button>
-                    </div>
+                    Product
                   </th>
                   <th className="text-left py-1 xs:py-2 lg:py-3 px-1 xs:px-2 lg:px-4 text-gray-600 font-semibold text-xs lg:text-sm whitespace-nowrap w-1/4">
-                    <div className="flex items-center gap-1">
-                      Status
-                      <button className="text-gray-400 hover:text-amber-600 flex-shrink-0">
-                        <i className='bx bx-sort text-xs'></i>
-                      </button>
-                    </div>
+                    Status
                   </th>
                   <th className="text-left py-1 xs:py-2 lg:py-3 px-1 xs:px-2 lg:px-4 text-gray-600 font-semibold text-xs lg:text-sm whitespace-nowrap w-1/4">
-                    <div className="flex items-center gap-1">
-                      Date
-                      <button className="text-gray-400 hover:text-amber-600 flex-shrink-0">
-                        <i className='bx bx-sort text-xs'></i>
-                      </button>
-                    </div>
+                    Date
                   </th>
                 </tr>
               </thead>
@@ -459,8 +548,8 @@ const Dashboard = () => {
                     <td colSpan="4" className="py-6 xs:py-8 text-center">
                       <div className="flex flex-col items-center justify-center text-gray-400">
                         <i className='bx bx-package text-3xl xs:text-4xl mb-2'></i>
-                        <p className="text-sm xs:text-base">Tidak ada data untuk tanggal ini</p>
-                        <p className="text-xs xs:text-sm mt-1">Coba pilih tanggal lain atau ubah pencarian</p>
+                        <p className="text-sm xs:text-base">Tidak ada data order untuk tanggal ini</p>
+                        <p className="text-xs xs:text-sm mt-1">Data akan muncul ketika ada order baru</p>
                       </div>
                     </td>
                   </tr>
