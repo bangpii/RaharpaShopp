@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react'
+import { 
+  getAllOrders, 
+  updateOrder, 
+  deleteOrder, 
+  initializeOrdersSocket,
+  cleanupOrdersSocket,
+  setOrdersUpdateCallback
+} from '../../api/Api_orders'
 
 const Orders = ({ onNavigate }) => {
-  const [selectedDate, setSelectedDate] = useState('2025-11-19')
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [showEditForm, setShowEditForm] = useState(false)
@@ -10,9 +18,9 @@ const Orders = ({ onNavigate }) => {
   const [showOrderDetail, setShowOrderDetail] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [isSmallLaptop, setIsSmallLaptop] = useState(false)
+  const [orders, setOrders] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
   const [editOrderData, setEditOrderData] = useState({
-    code: '',
-    status: 'pending',
     locationLink: '',
     method: 'shoppie'
   })
@@ -33,6 +41,54 @@ const Orders = ({ onNavigate }) => {
     }
   }, [])
 
+  // Initialize socket dan load data
+  useEffect(() => {
+    const initializeData = async () => {
+      try {
+        setIsLoading(true)
+        
+        // Initialize socket
+        initializeOrdersSocket()
+        
+        // Set callback untuk real-time updates
+        setOrdersUpdateCallback(() => {
+          console.log('🔄 Real-time orders update received, refreshing data...')
+          loadOrdersData()
+        })
+        
+        // Load initial data
+        await loadOrdersData()
+        
+      } catch (error) {
+        console.error('❌ Error initializing orders data:', error)
+        setOrders([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    initializeData()
+
+    // Cleanup on unmount
+    return () => {
+      cleanupOrdersSocket()
+      setOrdersUpdateCallback(null)
+    }
+  }, [])
+
+  // Load orders data
+  const loadOrdersData = async () => {
+    try {
+      console.log('📥 Loading orders data from backend...')
+      const ordersData = await getAllOrders()
+      setOrders(Array.isArray(ordersData) ? ordersData : [])
+      console.log('✅ Orders data loaded successfully:', Array.isArray(ordersData) ? ordersData.length : 0)
+    } catch (error) {
+      console.error('❌ Failed to load orders data:', error)
+      setOrders([])
+    }
+  }
+
   const handleDashboardClick = () => {
     if (onNavigate) {
       onNavigate('Dashboard')
@@ -41,6 +97,7 @@ const Orders = ({ onNavigate }) => {
 
   const handleOrdersRefresh = () => {
     setSearchTerm('')
+    loadOrdersData()
   }
 
   const handleDateClick = () => {
@@ -58,226 +115,70 @@ const Orders = ({ onNavigate }) => {
     return date.toLocaleDateString('id-ID', options)
   }
 
-  // Data orders dengan struktur baru - gambar dan harga berdasarkan code barang
-  const [orders, setOrders] = useState([
-    {
-      id: "1",
-      name: "Baihaqie Ar Rafi",
-      code: "BRG001, BRG002",
-      quantity: 2,
-      price: "250.000, 150.000",
-      total: 400000,
-      status: "completed",
-      date: "2025-11-19",
-      time: "14:30",
-      image: "01,02",
-      locationLink: "https://maps.google.com/?q=Jakarta",
-      method: "shoppie"
-    },
-    {
-      id: "2",
-      name: "Rahima Maisarah",
-      code: "BRG003",
-      quantity: 1,
-      price: "150.000",
-      total: 150000,
-      status: "pending",
-      date: "2025-11-19",
-      time: "10:15",
-      image: "03",
-      locationLink: "https://maps.google.com/?q=Bandung",
-      method: "manual"
-    },
-    {
-      id: "3",
-      name: "Gabriel Silitonga",
-      code: "BRG004, BRG005, BRG006",
-      quantity: 3,
-      price: "75.000, 80.000, 70.000",
-      total: 225000,
-      status: "processing",
-      date: "2025-11-18",
-      time: "16:45",
-      image: "04,05,01",
-      locationLink: "https://maps.google.com/?q=Surabaya",
-      method: "shoppie"
-    },
-    {
-      id: "4",
-      name: "Jarjit Shings",
-      code: "BRG007",
-      quantity: 1,
-      price: "500.000",
-      total: 500000,
-      status: "completed",
-      date: "2025-11-19",
-      time: "09:20",
-      image: "02",
-      locationLink: "https://maps.google.com/?q=Yogyakarta",
-      method: "manual"
-    },
-    {
-      id: "5",
-      name: "Sarah Johnson",
-      code: "BRG008, BRG009",
-      quantity: 2,
-      price: "125.000, 125.000",
-      total: 250000,
-      status: "cancelled",
-      date: "2025-11-17",
-      time: "11:30",
-      image: "03,04",
-      locationLink: "https://maps.google.com/?q=Semarang",
-      method: "shoppie"
-    },
-    {
-      id: "6",
-      name: "Michael Chen",
-      code: "BRG010",
-      quantity: 1,
-      price: "300.000",
-      total: 300000,
-      status: "completed",
-      date: "2025-11-16",
-      time: "13:15",
-      image: "05",
-      locationLink: "https://maps.google.com/?q=Malang",
-      method: "manual"
-    },
-    {
-      id: "7",
-      name: "Lisa Anderson",
-      code: "BRG011, BRG012, BRG013, BRG014",
-      quantity: 4,
-      price: "50.000, 55.000, 45.000, 50.000",
-      total: 200000,
-      status: "processing",
-      date: "2025-11-15",
-      time: "15:40",
-      image: "01,02,03,04",
-      locationLink: "https://maps.google.com/?q=Denpasar",
-      method: "shoppie"
-    },
-    {
-      id: "8",
-      name: "Tukul Nono",
-      code: "BRG015",
-      quantity: 1,
-      price: "750.000",
-      total: 750000,
-      status: "completed",
-      date: "2025-11-15",
-      time: "08:50",
-      image: "05",
-      locationLink: "https://maps.google.com/?q=Medan",
-      method: "manual"
-    }
-  ])
-
-  // Mapping code barang ke gambar dan harga
-  const codeToImageMap = {
-    'BRG001': '01',
-    'BRG002': '02',
-    'BRG003': '03',
-    'BRG004': '04',
-    'BRG005': '05',
-    'BRG006': '01',
-    'BRG007': '02',
-    'BRG008': '03',
-    'BRG009': '04',
-    'BRG010': '05',
-    'BRG011': '01',
-    'BRG012': '02',
-    'BRG013': '03',
-    'BRG014': '04',
-    'BRG015': '05'
-  }
-
-  const codeToPriceMap = {
-    'BRG001': '250.000',
-    'BRG002': '150.000',
-    'BRG003': '150.000',
-    'BRG004': '75.000',
-    'BRG005': '80.000',
-    'BRG006': '70.000',
-    'BRG007': '500.000',
-    'BRG008': '125.000',
-    'BRG009': '125.000',
-    'BRG010': '300.000',
-    'BRG011': '50.000',
-    'BRG012': '55.000',
-    'BRG013': '45.000',
-    'BRG014': '50.000',
-    'BRG015': '750.000'
-  }
-
-  const filteredOrders = orders.filter(order =>
-    order.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.id.includes(searchTerm) ||
-    order.code.toLowerCase().includes(searchTerm.toLowerCase())
-  )
-
-  // Filter orders berdasarkan tanggal yang dipilih
-  const ordersByDate = filteredOrders.filter(order => 
-    order.date === selectedDate
-  )
+  // Filter orders berdasarkan tanggal dan search term
+  const filteredOrders = orders.filter(order => {
+    // Filter by date
+    const orderDate = new Date(order.orderDate).toISOString().split('T')[0]
+    if (orderDate !== selectedDate) return false
+    
+    // Filter by search term
+    const searchLower = searchTerm.toLowerCase()
+    return (
+      order.user?.name?.toLowerCase().includes(searchLower) ||
+      order._id.includes(searchTerm) ||
+      order.items.some(item => 
+        item.item?.code?.toLowerCase().includes(searchLower)
+      )
+    )
+  })
 
   // Buat ID increment berdasarkan looping
-  const ordersWithIncrementId = ordersByDate.map((order, index) => ({
+  const ordersWithIncrementId = filteredOrders.map((order, index) => ({
     ...order,
     incrementId: (index + 1).toString()
   }))
 
   // Handle Edit Data
-  const handleEditOrder = () => {
-    if (editOrderData.code === '') return
+  const handleEditOrder = async () => {
+    if (!selectedOrder) return
     
-    // Generate gambar, harga, dan quantity otomatis dari code barang
-    const codes = editOrderData.code.split(',').map(code => code.trim())
-    const images = codes.map(code => codeToImageMap[code] || '01').join(', ')
-    const prices = codes.map(code => codeToPriceMap[code] || '0').join(', ')
-    const quantity = codes.length
-    
-    // Hitung total berdasarkan harga
-    const total = codes.reduce((sum, code) => {
-      const price = parseInt(codeToPriceMap[code]?.replace(/\./g, '') || '0')
-      return sum + price
-    }, 0)
-    
-    const updatedOrders = orders.map(order => 
-      order.id === selectedOrder.id 
-        ? { 
-            ...order, 
-            code: editOrderData.code,
-            quantity: quantity,
-            price: prices,
-            total: total,
-            status: editOrderData.status,
-            image: images,
-            locationLink: editOrderData.locationLink,
-            method: editOrderData.method
-          } 
-        : order
-    )
-    
-    setOrders(updatedOrders)
-    setEditOrderData({
-      code: '',
-      status: 'pending',
-      locationLink: '',
-      method: 'shoppie'
-    })
-    setShowEditForm(false)
-    setSelectedOrder(null)
+    try {
+      await updateOrder(selectedOrder._id, editOrderData)
+      
+      // Refresh data
+      await loadOrdersData()
+      
+      setEditOrderData({
+        locationLink: '',
+        method: 'shoppie'
+      })
+      setShowEditForm(false)
+      setSelectedOrder(null)
+      
+    } catch (error) {
+      console.error('❌ Error updating order:', error)
+      alert('Gagal mengupdate order: ' + (error.message || 'Unknown error'))
+    }
   }
 
   // Handle Hapus Data
-  const handleDeleteOrder = () => {
-    const updatedOrders = orders.filter(order => order.id !== selectedOrder.id)
-    setOrders(updatedOrders)
-    setShowDeleteConfirm(false)
-    setSelectedOrder(null)
-    setShowOrderDetail(false)
+  const handleDeleteOrder = async () => {
+    if (!selectedOrder) return
+    
+    try {
+      await deleteOrder(selectedOrder._id)
+      
+      // Refresh data
+      await loadOrdersData()
+      
+      setShowDeleteConfirm(false)
+      setSelectedOrder(null)
+      setShowOrderDetail(false)
+      
+    } catch (error) {
+      console.error('❌ Error deleting order:', error)
+      alert('Gagal menghapus order: ' + (error.message || 'Unknown error'))
+    }
   }
 
   // Format currency
@@ -293,8 +194,6 @@ const Orders = ({ onNavigate }) => {
   const openEditForm = (order) => {
     setSelectedOrder(order)
     setEditOrderData({
-      code: order.code,
-      status: order.status,
       locationLink: order.locationLink || '',
       method: order.method || 'shoppie'
     })
@@ -348,15 +247,14 @@ const Orders = ({ onNavigate }) => {
   }
 
   // Render multiple images
-  const renderImages = (imageString) => {
-    const images = imageString.split(',')
+  const renderImages = (items) => {
     return (
       <div className="flex gap-1">
-        {images.map((img, index) => (
+        {items.map((item, index) => (
           <div key={index} className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden">
             <img 
-              src={`/${img.trim()}.jpeg`} 
-              alt={`Gambar ${img.trim()}`}
+              src={item.item?.image || '/01.jpeg'} 
+              alt={`Gambar ${item.item?.code}`}
               className="w-full h-full object-cover"
               onError={(e) => {
                 e.target.style.display = 'none'
@@ -372,37 +270,47 @@ const Orders = ({ onNavigate }) => {
     )
   }
 
-  // Preview gambar dan harga berdasarkan code barang
-  const renderCodePreview = (codeString) => {
-    const codes = codeString.split(',').map(code => code.trim())
-    return (
-      <div className="space-y-2">
-        {codes.map((code, index) => (
-          <div key={index} className="flex items-center justify-between text-xs bg-gray-50 p-2 rounded-lg">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded bg-gray-200 flex items-center justify-center overflow-hidden">
-                <img 
-                  src={`/${codeToImageMap[code] || '01'}.jpeg`} 
-                  alt={code}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.target.style.display = 'none'
-                    e.target.nextSibling.style.display = 'flex'
-                  }}
-                />
-                <div className="hidden items-center justify-center text-gray-400 text-xs">
-                  <i className='bx bx-image'></i>
-                </div>
-              </div>
-              <span className="font-medium">{code}</span>
-            </div>
-            <span className="text-green-600 font-semibold">
-              {codeToPriceMap[code] || '0'}
-            </span>
-          </div>
-        ))}
-      </div>
-    )
+  // Get item codes string
+  const getItemCodes = (items) => {
+    return items.map(item => item.item?.code).join(', ')
+  }
+
+  // Get item prices string
+  const getItemPrices = (items) => {
+    return items.map(item => formatCurrency(item.unitPrice)).join(', ')
+  }
+
+  // Get total quantity
+  const getTotalQuantity = (items) => {
+    return items.reduce((total, item) => total + item.quantity, 0)
+  }
+
+  // Format display date
+  const formatDisplayDate = (dateString) => {
+    if (!dateString) return 'Tanggal tidak tersedia'
+    try {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return 'Format tanggal tidak valid'
+      const options = { day: 'numeric', month: 'long', year: 'numeric' }
+      return date.toLocaleDateString('id-ID', options)
+    } catch {
+      return 'Format tanggal tidak valid'
+    }
+  }
+
+  // Format display time
+  const formatDisplayTime = (dateString) => {
+    if (!dateString) return 'Waktu tidak tersedia'
+    try {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return 'Format waktu tidak valid'
+      return date.toLocaleTimeString('id-ID', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      })
+    } catch {
+      return 'Format waktu tidak valid'
+    }
   }
 
   return (
@@ -428,38 +336,6 @@ const Orders = ({ onNavigate }) => {
             </div>
             
             <div className="space-y-4">
-              {/* Code Barang */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Code Barang
-                </label>
-                <input
-                  type="text"
-                  value={editOrderData.code}
-                  onChange={(e) => setEditOrderData({...editOrderData, code: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl 
-                           focus:ring-2 focus:ring-amber-500 focus:border-transparent
-                           bg-gray-50 hover:bg-white transition-colors duration-200
-                           text-sm placeholder-gray-400"
-                  placeholder="Kode barang (pisah dengan koma)"
-                />
-              </div>
-
-              {/* Preview Code Barang */}
-              {editOrderData.code && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Preview Barang
-                  </label>
-                  <div className="border border-gray-200 rounded-xl p-3 bg-gray-50">
-                    {renderCodePreview(editOrderData.code)}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    * Gambar, harga, dan jumlah akan otomatis terupdate berdasarkan code barang
-                  </p>
-                </div>
-              )}
-
               {/* Link Lokasi */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -518,26 +394,6 @@ const Orders = ({ onNavigate }) => {
                   </button>
                 </div>
               </div>
-              
-              {/* Status */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Status
-                </label>
-                <select
-                  value={editOrderData.status}
-                  onChange={(e) => setEditOrderData({...editOrderData, status: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl 
-                           focus:ring-2 focus:ring-amber-500 focus:border-transparent
-                           bg-gray-50 hover:bg-white transition-colors duration-200
-                           text-sm"
-                >
-                  <option value="pending">Pending</option>
-                  <option value="processing">Processing</option>
-                  <option value="completed">Completed</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </div>
             </div>
             
             <div className="flex gap-3 mt-8">
@@ -578,7 +434,7 @@ const Orders = ({ onNavigate }) => {
               
               <h3 className="text-xl font-bold text-gray-800 mb-2">Hapus Data Order</h3>
               <p className="text-gray-600 mb-6">
-                Apakah Anda yakin ingin menghapus order dari <span className="font-semibold text-amber-700">{selectedOrder.name}</span>? Tindakan ini tidak dapat dibatalkan.
+                Apakah Anda yakin ingin menghapus order dari <span className="font-semibold text-amber-700">{selectedOrder.user?.name}</span>? Tindakan ini tidak dapat dibatalkan.
               </p>
             </div>
             
@@ -634,10 +490,10 @@ const Orders = ({ onNavigate }) => {
                     <i className='bx bx-user text-2xl'></i>
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold text-gray-800">{selectedOrder.name}</h2>
-                    <p className="text-gray-600">ID: {selectedOrder.id}</p>
+                    <h2 className="text-2xl font-bold text-gray-800">{selectedOrder.user?.name}</h2>
+                    <p className="text-gray-600">ID: {selectedOrder._id}</p>
                     <p className="text-green-600 font-bold text-lg mt-1">
-                      {formatCurrency(selectedOrder.total)}
+                      {formatCurrency(selectedOrder.totalAmount)}
                     </p>
                   </div>
                 </div>
@@ -652,7 +508,7 @@ const Orders = ({ onNavigate }) => {
                       </div>
                       <div>
                         <h4 className="font-semibold text-gray-800">Code Barang</h4>
-                        <p className="text-gray-600 text-sm font-medium">{selectedOrder.code}</p>
+                        <p className="text-gray-600 text-sm font-medium">{getItemCodes(selectedOrder.items)}</p>
                       </div>
                     </div>
                   </div>
@@ -665,7 +521,7 @@ const Orders = ({ onNavigate }) => {
                       </div>
                       <div>
                         <h4 className="font-semibold text-gray-800 mb-2">Gambar Barang</h4>
-                        {renderImages(selectedOrder.image)}
+                        {renderImages(selectedOrder.items)}
                       </div>
                     </div>
                   </div>
@@ -681,11 +537,11 @@ const Orders = ({ onNavigate }) => {
                         <div className="space-y-2">
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-600">Jumlah Barang:</span>
-                            <span className="font-semibold">{selectedOrder.quantity} pcs</span>
+                            <span className="font-semibold">{getTotalQuantity(selectedOrder.items)} pcs</span>
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-600">Harga Satuan:</span>
-                            <span className="font-semibold">{selectedOrder.price}</span>
+                            <span className="font-semibold">{getItemPrices(selectedOrder.items)}</span>
                           </div>
                         </div>
                       </div>
@@ -714,6 +570,28 @@ const Orders = ({ onNavigate }) => {
                     </div>
                   </div>
 
+                  {/* Link Lokasi */}
+                  {selectedOrder.locationLink && (
+                    <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
+                          <i className='bx bx-map text-amber-600 text-lg'></i>
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-800 mb-2">Lokasi Pengiriman</h4>
+                          <a 
+                            href={selectedOrder.locationLink} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 text-sm break-all"
+                          >
+                            {selectedOrder.locationLink}
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Tanggal dan Waktu */}
                   <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
                     <div className="flex items-center gap-3">
@@ -722,8 +600,8 @@ const Orders = ({ onNavigate }) => {
                       </div>
                       <div>
                         <h4 className="font-semibold text-gray-800">Tanggal & Waktu</h4>
-                        <p className="text-gray-600 text-sm">{selectedOrder.date}</p>
-                        <p className="text-gray-500 text-xs">{selectedOrder.time}</p>
+                        <p className="text-gray-600 text-sm">{formatDisplayDate(selectedOrder.orderDate)}</p>
+                        <p className="text-gray-500 text-xs">{formatDisplayTime(selectedOrder.orderDate)}</p>
                       </div>
                     </div>
                   </div>
@@ -818,8 +696,7 @@ const Orders = ({ onNavigate }) => {
                   value={selectedDate}
                   onChange={handleDateChange}
                   className="w-full px-3 py-2 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                  max="2025-12-31"
-                  min="2025-01-01"
+                  max={new Date().toISOString().split('T')[0]}
                 />
               </div>
             )}
@@ -863,20 +740,10 @@ const Orders = ({ onNavigate }) => {
               <thead>
                 <tr className="sticky top-0">
                   <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600 rounded-tl-2xl">
-                    <div className="flex items-center gap-1">
-                      No
-                      <button className="text-amber-200 hover:text-white transition-colors">
-                        <i className='bx bx-sort text-xs'></i>
-                      </button>
-                    </div>
+                    No
                   </th>
                   <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600">
-                    <div className="flex items-center gap-1">
-                      Nama User
-                      <button className="text-amber-200 hover:text-white transition-colors">
-                        <i className='bx bx-sort text-xs'></i>
-                      </button>
-                    </div>
+                    Nama User
                   </th>
                   <th className="text-left py-4 xs:py-5 px-2 xs:px-4 text-white font-semibold text-xs lg:text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600">
                     Code Barang
@@ -910,8 +777,8 @@ const Orders = ({ onNavigate }) => {
               </thead>
               <tbody>
                 {ordersWithIncrementId.map((order) => (
-                  <tr key={order.id} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
-                    <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-medium">
+                  <tr key={order._id} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
+                    <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-medium text-center">
                       {order.incrementId}
                     </td>
                     <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm">
@@ -920,23 +787,23 @@ const Orders = ({ onNavigate }) => {
                                       flex items-center justify-center text-white flex-shrink-0">
                           <i className='bx bx-user text-sm'></i>
                         </div>
-                        <span className="font-medium">{order.name}</span>
+                        <span className="font-medium">{order.user?.name}</span>
                       </div>
                     </td>
                     <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-600 text-xs lg:text-sm font-medium">
-                      {order.code}
+                      {getItemCodes(order.items)}
                     </td>
                     <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-600 text-xs lg:text-sm">
-                      {order.quantity} pcs
+                      {getTotalQuantity(order.items)} pcs
                     </td>
                     <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-semibold">
-                      {order.price}
+                      {getItemPrices(order.items)}
                     </td>
                     <td className="py-3 xs:py-4 px-2 xs:px-4">
-                      {renderImages(order.image)}
+                      {renderImages(order.items)}
                     </td>
                     <td className="py-3 xs:py-4 px-2 xs:px-4 text-gray-800 text-xs lg:text-sm font-semibold">
-                      {formatCurrency(order.total)}
+                      {formatCurrency(order.totalAmount)}
                     </td>
                     <td className="py-3 xs:py-4 px-2 xs:px-4">
                       <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${getStatusColor(order.status)}`}>
@@ -948,15 +815,11 @@ const Orders = ({ onNavigate }) => {
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2">
                           <i className='bx bx-calendar text-gray-400 text-xs'></i>
-                          {new Date(order.date).toLocaleDateString('id-ID', { 
-                            day: 'numeric', 
-                            month: 'long', 
-                            year: 'numeric' 
-                          })}
+                          {formatDisplayDate(order.orderDate)}
                         </div>
                         <div className="flex items-center gap-2 text-gray-500">
                           <i className='bx bx-time text-gray-400 text-xs'></i>
-                          {order.time}
+                          {formatDisplayTime(order.orderDate)}
                         </div>
                       </div>
                     </td>
@@ -965,14 +828,23 @@ const Orders = ({ onNavigate }) => {
                         <button 
                           onClick={() => openEditForm(order)}
                           className="p-2 rounded-xl text-blue-600 hover:bg-blue-50 transition-colors"
+                          title="Edit"
                         >
                           <i className='bx bx-edit text-lg'></i>
                         </button>
                         <button 
                           onClick={() => openDeleteConfirm(order)}
                           className="p-2 rounded-xl text-red-600 hover:bg-red-50 transition-colors"
+                          title="Hapus"
                         >
                           <i className='bx bx-trash text-lg'></i>
+                        </button>
+                        <button 
+                          onClick={() => openOrderDetail(order)}
+                          className="p-2 rounded-xl text-amber-600 hover:bg-amber-50 transition-colors"
+                          title="Detail"
+                        >
+                          <i className='bx bx-show text-lg'></i>
                         </button>
                       </div>
                     </td>
@@ -1011,7 +883,7 @@ const Orders = ({ onNavigate }) => {
               </thead>
               <tbody>
                 {ordersWithIncrementId.map((order) => (
-                  <tr key={order.id} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
+                  <tr key={order._id} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
                     <td className="py-4 px-4 text-gray-800 text-sm font-medium">
                       {order.incrementId}
                     </td>
@@ -1022,16 +894,16 @@ const Orders = ({ onNavigate }) => {
                           <i className='bx bx-user text-sm'></i>
                         </div>
                         <div>
-                          <span className="font-medium block">{order.name}</span>
-                          <span className="text-gray-500 text-xs">ID: {order.id}</span>
+                          <span className="font-medium block">{order.user?.name}</span>
+                          <span className="text-gray-500 text-xs">ID: {order._id.substring(0, 8)}...</span>
                         </div>
                       </div>
                     </td>
                     <td className="py-4 px-4 text-gray-600 text-sm font-medium">
-                      {order.code}
+                      {getItemCodes(order.items)}
                     </td>
                     <td className="py-4 px-4 text-gray-800 text-sm font-semibold">
-                      {formatCurrency(order.total)}
+                      {formatCurrency(order.totalAmount)}
                     </td>
                     <td className="py-4 px-4">
                       <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${getStatusColor(order.status)}`}>
@@ -1056,7 +928,7 @@ const Orders = ({ onNavigate }) => {
             {/* Mobile List (< 768px) */}
             <div className="md:hidden space-y-3">
               {ordersWithIncrementId.map((order) => (
-                <div key={order.id} className="bg-white rounded-2xl p-4 border border-amber-100 
+                <div key={order._id} className="bg-white rounded-2xl p-4 border border-amber-100 
                                             shadow-[0_4px_12px_rgba(186,118,48,0.1)] hover:shadow-[0_6px_20px_rgba(186,118,48,0.15)] 
                                             transition-all duration-200">
                   <div className="flex items-center justify-between">
@@ -1066,10 +938,10 @@ const Orders = ({ onNavigate }) => {
                         <i className='bx bx-user text-base'></i>
                       </div>
                       <div className="min-w-0 flex-1">
-                        <h3 className="font-semibold text-gray-800 text-sm truncate">{order.name}</h3>
-                        <p className="text-gray-500 text-xs truncate">ID: {order.id}</p>
+                        <h3 className="font-semibold text-gray-800 text-sm truncate">{order.user?.name}</h3>
+                        <p className="text-gray-500 text-xs truncate">ID: {order._id.substring(0, 8)}...</p>
                         <p className="text-green-600 font-bold text-sm mt-1">
-                          {formatCurrency(order.total)}
+                          {formatCurrency(order.totalAmount)}
                         </p>
                       </div>
                     </div>
@@ -1084,12 +956,21 @@ const Orders = ({ onNavigate }) => {
               ))}
             </div>
             
-            {ordersWithIncrementId.length === 0 && (
+            {ordersWithIncrementId.length === 0 && !isLoading && (
               <div className="py-8 xs:py-12 text-center">
                 <div className="flex flex-col items-center justify-center text-gray-400">
                   <i className='bx bx-package text-4xl xs:text-5xl mb-3'></i>
                   <p className="text-sm xs:text-base font-medium">Tidak ada order yang ditemukan</p>
                   <p className="text-xs xs:text-sm mt-1">Coba ubah kata kunci pencarian atau tanggal</p>
+                </div>
+              </div>
+            )}
+
+            {isLoading && (
+              <div className="py-8 xs:py-12 text-center">
+                <div className="flex flex-col items-center justify-center text-gray-400">
+                  <div className="w-8 h-8 border-2 border-amber-600 border-t-transparent rounded-full animate-spin mb-3"></div>
+                  <p className="text-sm xs:text-base font-medium">Memuat data orders...</p>
                 </div>
               </div>
             )}

@@ -1,58 +1,94 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import "boxicons/css/boxicons.min.css";
+import { getOrdersByUser } from '../../api/Api_orders';
 
-const WishList = ({ onClose }) => {
-  // Data wishlist yang sudah diperbaiki
-  const wishlistItems = [
-    {
-      id: 1,
-      name: "Kaos Polos Premium",
-      price: "Rp 120.000",
-      image: "/01.jpeg",
-      rating: "4.8"
-    },
-    {
-      id: 2,
-      name: "Hoodie Oversize",
-      price: "Rp 240.000",
-      image: "/02.jpeg",
-      rating: "4.9"
-    },
-    {
-      id: 3,
-      name: "Kemeja Linen",
-      price: "Rp 180.000",
-      image: "/04.jpeg",
-      rating: "4.7"
-    },
-    {
-      id: 4,
-      name: "Blouse Floral",
-      price: "Rp 150.000",
-      image: "https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=400&h=400&fit=crop",
-      rating: "4.6"
-    },
-    {
-      id: 5,
-      name: "Jaket Denim Vintage",
-      price: "Rp 275.000",
-      image: "https://images.unsplash.com/photo-1544022613-e87ca75a784a?w=400&h=400&fit=crop",
-      rating: "4.8"
-    },
-    {
-      id: 6,
-      name: "Celana Chino Slim",
-      price: "Rp 190.000",
-      image: "https://images.unsplash.com/photo-1582418702059-97ebafb35d09?w=400&h=400&fit=crop",
-      rating: "4.5"
-    }
-  ];
+const WishList = ({ onClose, userId }) => {
+  const [wishlistItems, setWishlistItems] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Calculate total keseluruhan - diperbaiki untuk handle format harga
+  // Load wishlist data dari API
+  useEffect(() => {
+    const loadWishlistData = async () => {
+      if (!userId) {
+        console.log('❌ User ID tidak tersedia untuk load wishlist');
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        console.log('📥 Loading wishlist data for user:', userId);
+        
+        const orders = await getOrdersByUser(userId);
+        
+        // Transform orders data ke format wishlist
+        const items = orders.flatMap(order => 
+          order.items.map(orderItem => ({
+            id: orderItem.item?._id || `temp-${Date.now()}`,
+            name: `Item ${orderItem.item?.code || 'Unknown'}`,
+            price: `Rp ${orderItem.unitPrice?.toLocaleString('id-ID') || '0'}`,
+            image: orderItem.item?.image || '/01.jpeg',
+            rating: "5.0", // Default rating
+            orderId: order._id,
+            orderDate: order.orderDate
+          }))
+        );
+
+        setWishlistItems(items);
+        console.log(`✅ Loaded ${items.length} wishlist items for user ${userId}`);
+        
+      } catch (error) {
+        console.error('❌ Error loading wishlist:', error);
+        // Fallback ke data dummy jika error
+        setWishlistItems(getFallbackWishlistItems());
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadWishlistData();
+  }, [userId]);
+
+  // Fallback data jika API error
+  const getFallbackWishlistItems = () => {
+    return [
+      {
+        id: 1,
+        name: "Kaos Polos Premium",
+        price: "Rp 120.000",
+        image: "/01.jpeg",
+        rating: "4.8"
+      },
+      {
+        id: 2,
+        name: "Hoodie Oversize",
+        price: "Rp 240.000",
+        image: "/02.jpeg",
+        rating: "4.9"
+      }
+    ];
+  };
+
+  // Calculate total keseluruhan
   const totalKeseluruhan = wishlistItems.reduce((total, item) => {
     const priceNumber = parseInt(item.price.replace('Rp ', '').replace(/\./g, ''));
     return total + (isNaN(priceNumber) ? 0 : priceNumber);
   }, 0);
+
+  if (isLoading) {
+    return (
+      <div className="w-full h-full flex flex-col bg-white rounded-2xl border border-amber-100 
+                    shadow-[0_10px_30px_rgba(186,118,48,0.1),0_4px_12px_rgba(186,118,48,0.05),inset_0_1px_0_rgba(255,255,255,0.8)]
+                    p-4 xs:p-6">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-8 h-8 border-2 border-amber-600 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+            <p className="text-gray-600 text-sm">Memuat wishlist...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-full flex flex-col bg-white rounded-2xl border border-amber-100 
@@ -139,7 +175,7 @@ const WishList = ({ onClose }) => {
                   {item.name}
                 </p>
                 <p className="text-xs xs:text-sm text-gray-500 mt-0.5 xs:mt-1 flex items-center gap-1">
-                  <i className="bx bx-star text-yellow-400 text-xs xs:text-sm
+                  <i className="bx bxs-star text-yellow-400 text-xs xs:text-sm
                                drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]"></i>
                   {item.rating} • Wishlist
                 </p>

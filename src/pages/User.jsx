@@ -361,19 +361,19 @@ const User = () => {
   }, [userData, SESSION_DURATION]);
 
   // Di dalam User component, tambahkan:
-React.useEffect(() => {
-  console.log('🧪 User page - Testing backend...');
-  
-  // Test backend
-  fetch('https://serverraharpashopp-production-f317.up.railway.app/health')
-    .then(response => response.json())
-    .then(data => {
-      console.log('✅ User page - Backend OK:', data);
-    })
-    .catch(error => {
-      console.error('❌ User page - Backend failed:', error);
-    });
-}, []);
+  React.useEffect(() => {
+    console.log('🧪 User page - Testing backend...');
+    
+    // Test backend
+    fetch('https://serverraharpashopp-production-f317.up.railway.app/health')
+      .then(response => response.json())
+      .then(data => {
+        console.log('✅ User page - Backend OK:', data);
+      })
+      .catch(error => {
+        console.error('❌ User page - Backend failed:', error);
+      });
+  }, []);
 
   return (
     <>
@@ -433,10 +433,8 @@ React.useEffect(() => {
               <div className={`w-full h-full bg-white rounded-2xl shadow-2xl transform transition-all duration-300 relative z-50 ${
                 showWishlist ? 'max-lg:scale-100 max-lg:opacity-100' : 'max-lg:scale-95 max-lg:opacity-0'
               }`}>
-                <WishList 
-                  onClose={() => setShowWishlist(false)}
-                  userData={userData}
-                />
+                {/* FIXED: Menggunakan userData.id bukan currentUser */}
+                <WishList onClose={() => setShowWishlist(false)} userId={userData?.id} />
               </div>
             </div>
 
@@ -550,7 +548,6 @@ React.useEffect(() => {
                 <p className="text-gray-600">
                   Anda akan keluar dari akun <span className="font-semibold text-amber-700">{userData?.name}</span>
                 </p>
-   
               </div>
               
               {/* Action Buttons */}

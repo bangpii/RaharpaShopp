@@ -4,12 +4,14 @@ import {
   addItem, 
   updateItem, 
   deleteItem, 
-  sendItem,
   initializeItemsSocket,
   cleanupItemsSocket,
   setItemsUpdateCallback
 } from '../../api/Api_Item'  
 import { getAllUsers } from '../../api/Api_AkunUsers'
+import { 
+  createOrder 
+} from '../../api/Api_orders'
 
 const Item = ({ onNavigate }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
@@ -349,14 +351,25 @@ const Item = ({ onNavigate }) => {
     try {
       setFormLoading(true)
       
-      // Langsung panggil API tanpa delay - socket akan handle real-time update
-      await sendItem(selectedItem._id, userId)
+      // Buat order baru
+      const orderData = {
+          userId: userId,
+          itemIds: [selectedItem._id],
+          locationLink: '', // Bisa dikosongkan dulu, nanti bisa diedit di orders
+          method: 'shoppie'
+      }
+      
+      // Panggil API untuk create order
+      await createOrder(orderData)
       
       // OPTIMIZED: Tidak perlu loadItemsData() lagi karena socket sudah handle real-time update
       
       setShowSendConfirm(false)
       setShowUserList(false)
       setSelectedItem(null)
+      
+      // Show success message
+      console.log('✅ Item berhasil dikirim dan order dibuat')
       
     } catch (error) {
       console.error('❌ Error sending item:', error)
