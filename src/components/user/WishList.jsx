@@ -1,79 +1,126 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import "boxicons/css/boxicons.min.css";
 import { getOrdersByUser } from '../../api/Api_orders';
+import { initializeWishlistSocket, cleanupWishlistSocket, setWishlistUpdateCallback } from '../../api/Api_wishlist';
 
 const WishList = ({ onClose, userId }) => {
   const [wishlistItems, setWishlistItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Load wishlist data dari API
+  const loadWishlistData = useCallback(async () => {
+    if (!userId) {
+      console.log('❌ User ID tidak tersedia untuk load wishlist');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      console.log('📥 Loading wishlist data for user:', userId);
+      
+      const orders = await getOrdersByUser(userId);
+      
+      // Transform orders data ke format wishlist
+      const items = orders.flatMap(order => 
+        order.items.map(orderItem => ({
+          id: orderItem.item?._id || `temp-${Date.now()}`,
+          name: `Item ${orderItem.item?.code || 'Unknown'}`,
+          price: `Rp ${orderItem.unitPrice?.toLocaleString('id-ID') || '0'}`,
+          image: orderItem.item?.image || '/01.jpeg',
+          rating: "5.0", // Default rating
+          orderId: order._id,
+          orderDate: order.orderDate,
+          itemId: orderItem.item?._id
+        }))
+      );
+
+      setWishlistItems(items);
+      console.log(`✅ Loaded ${items.length} wishlist items for user ${userId}`);
+      
+    } catch (error) {
+      console.error('❌ Error loading wishlist:', error);
+      setWishlistItems([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId]);
+
+  // Handle real-time updates
+  const handleRealTimeUpdate = useCallback((data) => {
+    console.log('🔄 Real-time wishlist update received:', data);
+    
+    if (data.action === 'wishlist-updated') {
+      // Reload data ketika ada update wishlist
+      console.log('🔄 Wishlist updated, reloading data...');
+      loadWishlistData();
+    } else if (data.action === 'order-created' && data.order.userId === userId) {
+      // Order baru dibuat untuk user ini
+      console.log('🛒 New order created for this user, updating wishlist...');
+      loadWishlistData();
+    } else if (data.action === 'order-updated' && data.order.userId === userId) {
+      // Order diupdate untuk user ini
+      console.log('✏️ Order updated for this user, updating wishlist...');
+      loadWishlistData();
+    } else if (data.action === 'order-deleted' && data.userId === userId) {
+      // Order dihapus untuk user ini
+      console.log('🗑️ Order deleted for this user, updating wishlist...');
+      loadWishlistData();
+    }
+  }, [userId, loadWishlistData]);
+
+  // Initialize socket dan load data
   useEffect(() => {
-    const loadWishlistData = async () => {
-      if (!userId) {
-        console.log('❌ User ID tidak tersedia untuk load wishlist');
-        setIsLoading(false);
-        return;
-      }
-
+    const initializeData = async () => {
       try {
-        setIsLoading(true);
-        console.log('📥 Loading wishlist data for user:', userId);
+        // Initialize socket untuk wishlist
+        initializeWishlistSocket();
         
-        const orders = await getOrdersByUser(userId);
+        // Set callback untuk real-time updates
+        setWishlistUpdateCallback(handleRealTimeUpdate);
         
-        // Transform orders data ke format wishlist
-        const items = orders.flatMap(order => 
-          order.items.map(orderItem => ({
-            id: orderItem.item?._id || `temp-${Date.now()}`,
-            name: `Item ${orderItem.item?.code || 'Unknown'}`,
-            price: `Rp ${orderItem.unitPrice?.toLocaleString('id-ID') || '0'}`,
-            image: orderItem.item?.image || '/01.jpeg',
-            rating: "5.0", // Default rating
-            orderId: order._id,
-            orderDate: order.orderDate
-          }))
-        );
-
-        setWishlistItems(items);
-        console.log(`✅ Loaded ${items.length} wishlist items for user ${userId}`);
+        // Load initial data
+        await loadWishlistData();
         
       } catch (error) {
-        console.error('❌ Error loading wishlist:', error);
-        // Fallback ke data dummy jika error
-        setWishlistItems(getFallbackWishlistItems());
-      } finally {
-        setIsLoading(false);
+        console.error('❌ Error initializing wishlist data:', error);
+        setWishlistItems([]);
       }
     };
 
-    loadWishlistData();
-  }, [userId]);
+    initializeData();
 
-  // Fallback data jika API error
-  const getFallbackWishlistItems = () => {
-    return [
-      {
-        id: 1,
-        name: "Kaos Polos Premium",
-        price: "Rp 120.000",
-        image: "/01.jpeg",
-        rating: "4.8"
-      },
-      {
-        id: 2,
-        name: "Hoodie Oversize",
-        price: "Rp 240.000",
-        image: "/02.jpeg",
-        rating: "4.9"
-      }
-    ];
-  };
+    // Cleanup on unmount
+    return () => {
+      cleanupWishlistSocket();
+      setWishlistUpdateCallback(null);
+    };
+  }, [loadWishlistData, handleRealTimeUpdate]);
 
   // Calculate total keseluruhan
   const totalKeseluruhan = wishlistItems.reduce((total, item) => {
     const priceNumber = parseInt(item.price.replace('Rp ', '').replace(/\./g, ''));
     return total + (isNaN(priceNumber) ? 0 : priceNumber);
   }, 0);
+
+  // Empty state component
+  const EmptyWishlist = () => (
+    <div className="flex-1 flex flex-col items-center justify-center py-12">
+      <div className="text-center">
+        <div className="w-20 h-20 bg-gradient-to-br from-amber-100 to-amber-200 rounded-full 
+                      flex items-center justify-center mx-auto mb-4
+                      shadow-[0_8px_25px_rgba(186,118,48,0.15)]">
+          <i className="bx bx-package text-3xl text-amber-500"></i>
+        </div>
+        <h3 className="text-lg font-semibold text-gray-700 mb-2">
+          Tidak ada Wishlist
+        </h3>
+        <p className="text-sm text-gray-500 max-w-xs">
+          Belum ada item di wishlist Anda. Mulai tambahkan item favorit Anda!
+        </p>
+      </div>
+    </div>
+  );
 
   if (isLoading) {
     return (
@@ -145,85 +192,91 @@ const WishList = ({ onClose, userId }) => {
         <div className="flex-1 overflow-y-auto mb-2 space-y-3 xs:space-y-4 max-h-[60vh] min-h-0
                        [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]
                        pr-2">
-          {wishlistItems.map((item) => (
-            <div 
-              key={item.id}
-              className="flex items-center gap-3 xs:gap-4 p-3 xs:p-4 border border-amber-100 rounded-2xl 
-                         shadow-[0_4px_12px_rgba(186,118,48,0.1),inset_0_1px_2px_rgba(255,255,255,0.8)]
-                         hover:shadow-[0_8px_20px_rgba(186,118,48,0.15),inset_0_1px_2px_rgba(255,255,255,0.9)]
-                         transition-all duration-300 bg-gradient-to-r from-amber-50 to-white 
-                         transform hover:-translate-y-0.5"
-            >
-              {/* Gambar - Diperkecil tapi tetap jelas */}
-              <div className="w-16 h-16 xs:w-20 xs:h-20 rounded-xl bg-gradient-to-br from-amber-600 to-amber-700 
-                             shadow-[0_6px_16px_rgba(186,118,48,0.3),inset_0_2px_4px_rgba(255,255,255,0.3)]
-                             flex items-center justify-center text-white overflow-hidden flex-shrink-0">
-                <img 
-                  src={item.image} 
-                  alt={item.name}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.target.src = `https://via.placeholder.com/150/FFB74D/FFFFFF?text=${encodeURIComponent(item.name)}`;
-                  }}
-                />
-              </div>
+          {wishlistItems.length === 0 ? (
+            <EmptyWishlist />
+          ) : (
+            wishlistItems.map((item) => (
+              <div 
+                key={item.id}
+                className="flex items-center gap-3 xs:gap-4 p-3 xs:p-4 border border-amber-100 rounded-2xl 
+                           shadow-[0_4px_12px_rgba(186,118,48,0.1),inset_0_1px_2px_rgba(255,255,255,0.8)]
+                           hover:shadow-[0_8px_20px_rgba(186,118,48,0.15),inset_0_1px_2px_rgba(255,255,255,0.9)]
+                           transition-all duration-300 bg-gradient-to-r from-amber-50 to-white 
+                           transform hover:-translate-y-0.5"
+              >
+                {/* Gambar - Diperkecil tapi tetap jelas */}
+                <div className="w-16 h-16 xs:w-20 xs:h-20 rounded-xl bg-gradient-to-br from-amber-600 to-amber-700 
+                               shadow-[0_6px_16px_rgba(186,118,48,0.3),inset_0_2px_4px_rgba(255,255,255,0.3)]
+                               flex items-center justify-center text-white overflow-hidden flex-shrink-0">
+                  <img 
+                    src={item.image} 
+                    alt={item.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.src = `https://via.placeholder.com/150/FFB74D/FFFFFF?text=${encodeURIComponent(item.name)}`;
+                    }}
+                  />
+                </div>
 
-              {/* Content - Layout lebih compact */}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm xs:text-base font-bold text-gray-900 truncate
-                             drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]">
-                  {item.name}
-                </p>
-                <p className="text-xs xs:text-sm text-gray-500 mt-0.5 xs:mt-1 flex items-center gap-1">
-                  <i className="bx bxs-star text-yellow-400 text-xs xs:text-sm
-                               drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]"></i>
-                  {item.rating} • Wishlist
-                </p>
-                {/* Price di mobile pindah ke samping */}
-                <p className="text-base xs:text-lg font-bold text-amber-600 mt-1 xs:mt-2
-                             drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)] xs:hidden">
-                  {item.price}
-                </p>
-              </div>
+                {/* Content - Layout lebih compact */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm xs:text-base font-bold text-gray-900 truncate
+                               drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]">
+                    {item.name}
+                  </p>
+                  <p className="text-xs xs:text-sm text-gray-500 mt-0.5 xs:mt-1 flex items-center gap-1">
+                    <i className="bx bxs-star text-yellow-400 text-xs xs:text-sm
+                                 drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]"></i>
+                    {item.rating} • Wishlist
+                  </p>
+                  {/* Price di mobile pindah ke samping */}
+                  <p className="text-base xs:text-lg font-bold text-amber-600 mt-1 xs:mt-2
+                               drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)] xs:hidden">
+                    {item.price}
+                  </p>
+                </div>
 
-              {/* Action & Price - Dirapikan */}
-              <div className="flex flex-col items-end gap-1 xs:gap-2">
-                <button className="text-xl xs:text-2xl text-amber-500 transform hover:scale-110 transition-transform cursor-pointer
-                               drop-shadow-[0_2px_6px_rgba(186,118,48,0.3)] hover:text-amber-600">
-                  <i className="bx bxs-heart"></i>
-                </button>
-                {/* Price di desktop */}
-                <p className="text-lg xs:text-xl font-bold text-gray-800 hidden xs:block
-                             drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]">
-                  {item.price}
-                </p>
+                {/* Action & Price - Dirapikan */}
+                <div className="flex flex-col items-end gap-1 xs:gap-2">
+                  <button className="text-xl xs:text-2xl text-amber-500 transform hover:scale-110 transition-transform cursor-pointer
+                                 drop-shadow-[0_2px_6px_rgba(186,118,48,0.3)] hover:text-amber-600">
+                    <i className="bx bxs-heart"></i>
+                  </button>
+                  {/* Price di desktop */}
+                  <p className="text-lg xs:text-xl font-bold text-gray-800 hidden xs:block
+                               drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]">
+                    {item.price}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
 
-        {/* Total Keseluruhan - Ditempel di bawah data untuk mobile */}
-        <div className="bg-white text-amber-500 rounded-xl p-3 xs:p-4
-                       shadow-[0_6px_16px_rgba(186,118,48,0.1),inset_0_1px_2px_rgba(255,255,255,0.8)]
-                       border border-amber-100 mt-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs xs:text-sm text-gray-600 font-medium
-                           drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]">
-                Total Wishlist
-              </p>
-              <p className="text-base xs:text-lg font-bold text-amber-600
-                           drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]">
-                Rp {totalKeseluruhan.toLocaleString('id-ID')}
-              </p>
-            </div>
-            <div className="flex items-center gap-2 text-amber-500
-                           drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]">
-              <i className="bx bx-heart text-base xs:text-lg"></i>
-              <span className="text-xs xs:text-sm font-medium">{wishlistItems.length} items</span>
+        {/* Total Keseluruhan - Hanya tampil jika ada items */}
+        {wishlistItems.length > 0 && (
+          <div className="bg-white text-amber-500 rounded-xl p-3 xs:p-4
+                         shadow-[0_6px_16px_rgba(186,118,48,0.1),inset_0_1px_2px_rgba(255,255,255,0.8)]
+                         border border-amber-100 mt-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs xs:text-sm text-gray-600 font-medium
+                             drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]">
+                  Total Wishlist
+                </p>
+                <p className="text-base xs:text-lg font-bold text-amber-600
+                             drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]">
+                  Rp {totalKeseluruhan.toLocaleString('id-ID')}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-amber-500
+                             drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)]">
+                <i className="bx bx-heart text-base xs:text-lg"></i>
+                <span className="text-xs xs:text-sm font-medium">{wishlistItems.length} items</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
     </div>

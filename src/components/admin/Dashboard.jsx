@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -10,6 +10,8 @@ import {
   ArcElement
 } from 'chart.js'
 import { Bar, Doughnut } from 'react-chartjs-2'
+import { getDashboardData } from '../../api/Api_dashboard';
+import { io } from 'socket.io-client';
 
 // Register ChartJS components
 ChartJS.register(
@@ -23,109 +25,115 @@ ChartJS.register(
 )
 
 const Dashboard = () => {
-  const [selectedDate, setSelectedDate] = useState('2025-11-19')
-  const [showDatePicker, setShowDatePicker] = useState(false)
-  const [showBarChartModal, setShowBarChartModal] = useState(false)
-  const [showDoughnutModal, setShowDoughnutModal] = useState(false)
-  
-  // Data simulasi untuk tanggal berbeda
-  const getSimulatedData = (date) => {
-    const dataMap = {
-      '2025-11-19': {
-        stats: [
-          { title: "New Orders", value: "1,234", icon: "bx bx-cart", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-          { title: "Total Sales", value: "IDR 12.4M", icon: "bx bx-dollar", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-          { title: "Total Users", value: "5,678", icon: "bx bx-user", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-          { title: "Item", value: "890", icon: "bx bx-package", color: "bg-gradient-to-br from-amber-700 to-amber-500" }
-        ],
-        barChartData: [12000, 19000, 15000, 25000, 22000, 30000, 28000, 32000, 30000, 35000, 40000, 45000],
-        doughnutData: [65, 35], // Manual: 65%, Shoppie: 35%
-        recentOrders: [
-          { user: "John Doe", product: "T-Shirt", status: "Completed", date: "18 Nov 2025" },
-          { user: "Jane Smith", product: "Jeans", status: "Pending", date: "18 Nov 2025" },
-          { user: "Bob Johnson", product: "Shoes", status: "Completed", date: "17 Nov 2025" },
-          { user: "Alice Brown", product: "Jacket", status: "Processing", date: "17 Nov 2025" },
-          { user: "Mike Wilson", product: "Hat", status: "Completed", date: "16 Nov 2025" }
-        ]
-      },
-      '2025-11-18': {
-        stats: [
-          { title: "New Orders", value: "987", icon: "bx bx-cart", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-          { title: "Total Sales", value: "IDR 8.2M", icon: "bx bx-dollar", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-          { title: "Total Users", value: "5,432", icon: "bx bx-user", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-          { title: "Item", value: "765", icon: "bx bx-package", color: "bg-gradient-to-br from-amber-700 to-amber-500" }
-        ],
-        barChartData: [10000, 15000, 12000, 20000, 18000, 25000, 22000, 28000, 26000, 30000, 32000, 38000],
-        doughnutData: [60, 40], // Manual: 60%, Shoppie: 40%
-        recentOrders: [
-          { user: "Sarah Lee", product: "Dress", status: "Completed", date: "17 Nov 2025" },
-          { user: "Tom Wilson", product: "Shoes", status: "Completed", date: "17 Nov 2025" },
-          { user: "Lisa Brown", product: "Bag", status: "Pending", date: "16 Nov 2025" },
-          { user: "David Kim", product: "Watch", status: "Processing", date: "16 Nov 2025" },
-          { user: "Emma Davis", product: "Jewelry", status: "Completed", date: "15 Nov 2025" }
-        ]
-      },
-      '2025-11-17': {
-        stats: [
-          { title: "New Orders", value: "1,567", icon: "bx bx-cart", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-          { title: "Total Sales", value: "IDR 15.1M", icon: "bx bx-dollar", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-          { title: "Total Users", value: "6,123", icon: "bx bx-user", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-          { title: "Item", value: "1,045", icon: "bx bx-package", color: "bg-gradient-to-br from-amber-700 to-amber-500" }
-        ],
-        barChartData: [15000, 22000, 18000, 28000, 25000, 35000, 32000, 38000, 35000, 42000, 45000, 50000],
-        doughnutData: [70, 30], // Manual: 70%, Shoppie: 30%
-        recentOrders: [
-          { user: "Michael Chen", product: "Laptop", status: "Completed", date: "16 Nov 2025" },
-          { user: "Sophia Wang", product: "Phone", status: "Processing", date: "16 Nov 2025" },
-          { user: "James Lee", product: "Tablet", status: "Completed", date: "15 Nov 2025" },
-          { user: "Olivia Kim", product: "Camera", status: "Pending", date: "15 Nov 2025" },
-          { user: "Daniel Park", product: "Headphones", status: "Completed", date: "14 Nov 2025" }
-        ]
-      }
-    }
-    
-    // Return data untuk tanggal yang dipilih, atau data default untuk tanggal lain
-    return dataMap[date] || {
-      stats: [
-        { title: "New Orders", value: "0", icon: "bx bx-cart", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-        { title: "Total Sales", value: "IDR 0", icon: "bx bx-dollar", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-        { title: "Total Users", value: "0", icon: "bx bx-user", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
-        { title: "Item", value: "0", icon: "bx bx-package", color: "bg-gradient-to-br from-amber-700 to-amber-500" }
-      ],
-      barChartData: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      doughnutData: [0, 0], // Manual: 0%, Shoppie: 0%
-      recentOrders: []
-    }
-  }
+  const [dashboardData, setDashboardData] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showBarChartModal, setShowBarChartModal] = useState(false);
+  const [showDoughnutModal, setShowDoughnutModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const socketRef = useRef(null);
 
-  const simulatedData = getSimulatedData(selectedDate)
-  
-  const statsData = simulatedData.stats
-  const recentOrders = simulatedData.recentOrders
+  // Socket.IO connection untuk real-time updates
+  useEffect(() => {
+    const BASE_URL = import.meta.env.VITE_API_BASE_URL;
+    socketRef.current = io(BASE_URL, {
+      transports: ['websocket', 'polling']
+    });
+
+    // Join dashboard room
+    socketRef.current.emit('join-dashboard-room');
+
+    // Listen untuk real-time updates
+    socketRef.current.on('dashboard-update', (data) => {
+      console.log('📊 Real-time dashboard update received:', data);
+      // Refresh data ketika ada update
+      fetchDashboardData(selectedDate);
+    });
+
+    // Event listeners untuk berbagai update
+    const events = [
+      'order-created',
+      'order-updated', 
+      'user-logged-in',
+      'item-added',
+      'laporan-updated',
+      'user-logged-out',
+      'item-updated',
+      'item-deleted'
+    ];
+
+    events.forEach(event => {
+      socketRef.current.on(event, () => {
+        console.log(`🔄 ${event} received, refreshing dashboard...`);
+        fetchDashboardData(selectedDate);
+      });
+    });
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, []);
+
+  // Fetch dashboard data
+  const fetchDashboardData = async (date) => {
+    try {
+      setLoading(true);
+      const response = await getDashboardData(date);
+      if (response.success) {
+        setDashboardData(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      // Fallback ke data default jika error
+      setDashboardData(getDefaultData());
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Data default jika API error
+  const getDefaultData = () => ({
+    stats: [
+      { title: "New Orders", value: "0", icon: "bx bx-cart", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
+      { title: "Total Sales", value: "IDR 0", icon: "bx bx-dollar", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
+      { title: "Total Users", value: "0", icon: "bx bx-user", color: "bg-gradient-to-br from-amber-700 to-amber-500" },
+      { title: "Item", value: "0", icon: "bx bx-package", color: "bg-gradient-to-br from-amber-700 to-amber-500" }
+    ],
+    barChartData: [0, 0, 0, 0, 0, 0, 0],
+    doughnutData: [0, 0],
+    recentOrders: []
+  });
+
+  // Load data saat component mount atau date berubah
+  useEffect(() => {
+    fetchDashboardData(selectedDate);
+  }, [selectedDate]);
 
   const handleDateClick = () => {
-    setShowDatePicker(!showDatePicker)
-  }
+    setShowDatePicker(!showDatePicker);
+  };
 
   const handleDateChange = (e) => {
-    setSelectedDate(e.target.value)
-    setShowDatePicker(false)
-  }
+    setSelectedDate(e.target.value);
+    setShowDatePicker(false);
+  };
 
-  // Data untuk bar chart
+  // Data untuk bar chart (Mingguan)
   const barChartData = {
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    labels: ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'],
     datasets: [
       {
         label: 'Sales',
-        data: simulatedData.barChartData,
+        data: dashboardData?.barChartData || [0, 0, 0, 0, 0, 0, 0],
         backgroundColor: 'rgba(180, 83, 9, 0.8)',
         borderColor: 'rgba(180, 83, 9, 1)',
         borderWidth: 2,
         borderRadius: 8,
       },
     ],
-  }
+  };
 
   const barChartOptions = {
     responsive: true,
@@ -144,6 +152,11 @@ const Dashboard = () => {
         grid: {
           color: 'rgba(0, 0, 0, 0.1)',
         },
+        ticks: {
+          callback: function(value) {
+            return 'IDR ' + value.toLocaleString('id-ID');
+          }
+        }
       },
       x: {
         grid: {
@@ -151,14 +164,14 @@ const Dashboard = () => {
         },
       },
     },
-  }
+  };
 
-  // Data untuk doughnut chart - Hanya 2 kategori: Manual dan Shoppie
+  // Data untuk doughnut chart - Manual vs Shoppie
   const doughnutChartData = {
     labels: ['Manual', 'Shoppie'],
     datasets: [
       {
-        data: simulatedData.doughnutData,
+        data: dashboardData?.doughnutData || [0, 0],
         backgroundColor: [
           'rgba(180, 83, 9, 0.8)', // Coklat tua untuk Manual
           'rgba(217, 119, 6, 0.8)', // Coklat medium untuk Shoppie
@@ -170,7 +183,7 @@ const Dashboard = () => {
         borderWidth: 2,
       },
     ],
-  }
+  };
 
   const doughnutChartOptions = {
     responsive: true,
@@ -181,16 +194,43 @@ const Dashboard = () => {
         labels: {
           usePointStyle: true,
           padding: 15,
+          font: {
+            size: 12
+          }
         },
       },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            const label = context.label || '';
+            const value = context.raw || 0;
+            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+            const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
+            return `${label}: ${value} orders (${percentage}%)`;
+          }
+        }
+      }
     },
-  }
+  };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString)
-    const options = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }
-    return date.toLocaleDateString('id-ID', options)
+    const date = new Date(dateString);
+    const options = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+    return date.toLocaleDateString('id-ID', options);
+  };
+
+  if (loading && !dashboardData) {
+    return (
+      <div className="flex items-center justify-center min-h-96">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-700 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading dashboard data...</p>
+        </div>
+      </div>
+    );
   }
+
+  const currentData = dashboardData || getDefaultData();
 
   return (
     <div className="space-y-4 xs:space-y-6 overflow-x-hidden md:overflow-x-visible">
@@ -218,7 +258,10 @@ const Dashboard = () => {
                          shadow-[0_4px_12px_rgba(186,118,48,0.1),inset_0_1px_2px_rgba(255,255,255,0.8)]
                          hover:bg-amber-50 transition-colors mt-3 xs:mt-4 md:mt-0 w-full md:w-auto"
             >
-              <div className="text-xs lg:text-sm text-amber-700 text-center md:text-left">{formatDate(selectedDate)}</div>
+              <div className="text-xs lg:text-sm text-amber-700 text-center md:text-left">
+                {formatDate(selectedDate)}
+                <span className="ml-2 text-amber-500 animate-pulse">• Live</span>
+              </div>
             </button>
             
             {/* Date Picker Modal */}
@@ -239,8 +282,7 @@ const Dashboard = () => {
                   value={selectedDate}
                   onChange={handleDateChange}
                   className="w-full px-3 py-2 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                  max="2025-12-31"
-                  min="2025-01-01"
+                  max={new Date().toISOString().split('T')[0]}
                 />
               </div>
             )}
@@ -250,7 +292,7 @@ const Dashboard = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 gap-2 xs:grid-cols-2 lg:grid-cols-4 xs:gap-3 lg:gap-4">
-        {statsData.map((stat, index) => (
+        {currentData.stats.map((stat, index) => (
           <div 
             key={index}
             className={`${stat.color} rounded-2xl p-2 xs:p-3 sm:p-4 lg:p-6 text-white 
@@ -272,12 +314,12 @@ const Dashboard = () => {
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 xs:gap-4 lg:gap-6">
-        {/* Bar Chart */}
+        {/* Bar Chart - Weekly Sales */}
         <div className="bg-white rounded-2xl p-2 xs:p-3 sm:p-4 lg:p-6 
                        shadow-[0_10px_30px_rgba(186,118,48,0.1),0_4px_12px_rgba(186,118,48,0.05),inset_0_1px_0_rgba(255,255,255,0.8)]
                        border border-amber-100">
           <div className="flex items-center justify-between mb-2 xs:mb-3 sm:mb-4 lg:mb-6">
-            <h3 className="text-sm xs:text-base sm:text-lg lg:text-xl font-bold text-gray-800">Sales Overview</h3>
+            <h3 className="text-sm xs:text-base sm:text-lg lg:text-xl font-bold text-gray-800">Weekly Sales</h3>
             <button 
               onClick={() => setShowBarChartModal(true)}
               className="text-amber-700 hover:text-amber-800 text-xs lg:text-sm font-medium"
@@ -290,7 +332,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Doughnut Chart */}
+        {/* Doughnut Chart - Order Method Distribution */}
         <div className="bg-white rounded-2xl p-2 xs:p-3 sm:p-4 lg:p-6 
                        shadow-[0_10px_30px_rgba(186,118,48,0.1),0_4px_12px_rgba(186,118,48,0.05),inset_0_1px_0_rgba(255,255,255,0.8)]
                        border border-amber-100">
@@ -372,8 +414,8 @@ const Dashboard = () => {
                 </tr>
               </thead>
               <tbody>
-                {recentOrders.length > 0 ? (
-                  recentOrders.map((order, index) => (
+                {currentData.recentOrders.length > 0 ? (
+                  currentData.recentOrders.map((order, index) => (
                     <tr key={index} className="border-b border-amber-50 hover:bg-amber-50/50 transition-colors duration-200">
                       <td className="py-1 xs:py-2 lg:py-3 px-1 xs:px-2 lg:px-4 text-gray-800 text-xs lg:text-sm overflow-hidden">
                         <div className="flex items-center gap-2 min-w-0">
@@ -388,17 +430,20 @@ const Dashboard = () => {
                       </td>
                       <td className="py-1 xs:py-2 lg:py-3 px-1 xs:px-2 lg:px-4 overflow-hidden">
                         <span className={`px-2 xs:px-3 py-1 xs:py-1.5 rounded-full text-xs font-medium flex items-center justify-center gap-1 truncate ${
-                          order.status === 'Completed' 
+                          order.status === 'completed' 
                             ? 'bg-green-100 text-green-800 border border-green-200'
-                            : order.status === 'Pending'
+                            : order.status === 'pending'
                             ? 'bg-yellow-100 text-yellow-800 border border-yellow-200'
-                            : 'bg-blue-100 text-blue-800 border border-blue-200'
+                            : order.status === 'processing'
+                            ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                            : 'bg-red-100 text-red-800 border border-red-200'
                         }`}>
                           <i className={`bx ${
-                            order.status === 'Completed' ? 'bx-check-circle' :
-                            order.status === 'Pending' ? 'bx-time' : 'bx-cog'
+                            order.status === 'completed' ? 'bx-check-circle' :
+                            order.status === 'pending' ? 'bx-time' : 
+                            order.status === 'processing' ? 'bx-cog' : 'bx-x-circle'
                           } text-xs flex-shrink-0`}></i>
-                          <span className="truncate">{order.status}</span>
+                          <span className="truncate capitalize">{order.status}</span>
                         </span>
                       </td>
                       <td className="py-1 xs:py-2 lg:py-3 px-1 xs:px-2 lg:px-4 text-gray-600 text-xs lg:text-sm overflow-hidden">
@@ -431,7 +476,7 @@ const Dashboard = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-4 sm:p-6 lg:p-8 max-w-4xl w-full max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between mb-4 sm:mb-6">
-              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-800">Sales Overview Report</h3>
+              <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-800">Weekly Sales Report</h3>
               <button 
                 onClick={() => setShowBarChartModal(false)}
                 className="text-amber-600 hover:text-amber-700 text-lg sm:text-xl"

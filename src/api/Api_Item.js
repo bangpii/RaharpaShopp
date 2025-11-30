@@ -1,4 +1,4 @@
-// api/Api_Item.js - Standalone untuk Item
+// api/Api_Item.js - OPTIMIZED VERSION
 import {
     io
 } from 'socket.io-client';
@@ -6,107 +6,91 @@ import {
 const API_BASE_URL = 'https://serverraharpashopp-production-f317.up.railway.app/api';
 const SOCKET_URL = 'https://serverraharpashopp-production-f317.up.railway.app';
 
-// Socket instance untuk items
 let socket = null;
+let itemsUpdateCallback = null;
 
-// Initialize socket untuk items
+// Initialize socket untuk items - OPTIMIZED
 export const initializeItemsSocket = () => {
     if (!socket) {
-        console.log('🔌 Initializing items socket...');
+        console.log('🔌 Initializing optimized items socket...');
 
         socket = io(SOCKET_URL, {
             transports: ['websocket', 'polling'],
             withCredentials: true,
             reconnection: true,
             reconnectionAttempts: 5,
-            reconnectionDelay: 1000,
+            reconnectionDelay: 2000,
+            timeout: 10000
         });
 
-        // Socket event handlers
+        // Socket event handlers - OPTIMIZED
         socket.on('connect', () => {
             console.log('✅ Items socket connected:', socket.id);
-            // Join admin room untuk items
             socket.emit('join-admin-room-items');
         });
 
-        socket.on('disconnect', (reason) => {
-            console.log('❌ Items socket disconnected:', reason);
+        // REAL-TIME OPTIMIZATION: Langsung update tanpa delay
+        socket.on('items-updated', (data) => {
+            console.log('🔄 Real-time items update received:', data);
+            if (itemsUpdateCallback) {
+                itemsUpdateCallback(data);
+            }
+        });
+
+        socket.on('item-added', (data) => {
+            console.log('➕ New item added via socket:', data);
+            if (itemsUpdateCallback) {
+                itemsUpdateCallback({
+                    action: 'added',
+                    item: data.item
+                });
+            }
+        });
+
+        socket.on('item-updated', (data) => {
+            console.log('✏️ Item updated via socket:', data);
+            if (itemsUpdateCallback) {
+                itemsUpdateCallback({
+                    action: 'updated',
+                    item: data.item
+                });
+            }
+        });
+
+        socket.on('item-deleted', (data) => {
+            console.log('🗑️ Item deleted via socket:', data);
+            if (itemsUpdateCallback) {
+                itemsUpdateCallback({
+                    action: 'deleted',
+                    itemId: data.itemId
+                });
+            }
+        });
+
+        socket.on('item-sent', (data) => {
+            console.log('📤 Item sent via socket:', data);
+            if (itemsUpdateCallback) {
+                itemsUpdateCallback({
+                    action: 'sent',
+                    item: data.item
+                });
+            }
         });
 
         socket.on('connect_error', (error) => {
             console.error('💥 Items socket connection error:', error);
         });
 
-        socket.on('items-updated', (items) => {
-            console.log('🔄 Real-time items update received:', items);
-            if (typeof window !== 'undefined' && window.itemsUpdateCallback) {
-                window.itemsUpdateCallback(items);
-            }
-        });
-
-        socket.on('item-added', (data) => {
-            console.log('➕ New item added via socket:', data);
-            // Trigger refresh data
-            if (typeof window !== 'undefined' && window.itemsUpdateCallback) {
-                setTimeout(() => {
-                    getAllItems().then(items => {
-                        if (window.itemsUpdateCallback) {
-                            window.itemsUpdateCallback(items);
-                        }
-                    });
-                }, 500);
-            }
-        });
-
-        socket.on('item-updated', (data) => {
-            console.log('✏️ Item updated via socket:', data);
-            // Trigger refresh data
-            if (typeof window !== 'undefined' && window.itemsUpdateCallback) {
-                setTimeout(() => {
-                    getAllItems().then(items => {
-                        if (window.itemsUpdateCallback) {
-                            window.itemsUpdateCallback(items);
-                        }
-                    });
-                }, 500);
-            }
-        });
-
-        socket.on('item-deleted', (data) => {
-            console.log('🗑️ Item deleted via socket:', data);
-            // Trigger refresh data
-            if (typeof window !== 'undefined' && window.itemsUpdateCallback) {
-                setTimeout(() => {
-                    getAllItems().then(items => {
-                        if (window.itemsUpdateCallback) {
-                            window.itemsUpdateCallback(items);
-                        }
-                    });
-                }, 500);
-            }
-        });
-
-        socket.on('item-sent', (data) => {
-            console.log('📤 Item sent via socket:', data);
-            // Trigger refresh data
-            if (typeof window !== 'undefined' && window.itemsUpdateCallback) {
-                setTimeout(() => {
-                    getAllItems().then(items => {
-                        if (window.itemsUpdateCallback) {
-                            window.itemsUpdateCallback(items);
-                        }
-                    });
-                }, 500);
-            }
-        });
-
-        socket.on('reconnect', (attemptNumber) => {
-            console.log('🔄 Items socket reconnected. Attempt:', attemptNumber);
-            // Re-join admin room setelah reconnect
-            socket.emit('join-admin-room-items');
+        socket.on('disconnect', (reason) => {
+            console.log('❌ Items socket disconnected:', reason);
         });
     }
     return socket;
+};
+
+// Set callback untuk real-time updates - OPTIMIZED
+export const setItemsUpdateCallback = (callback) => {
+    itemsUpdateCallback = callback;
 };
 
 // Cleanup socket listeners
@@ -124,37 +108,58 @@ export const cleanupItemsSocket = () => {
 
         socket.disconnect();
         socket = null;
+        itemsUpdateCallback = null;
         console.log('🧹 Items socket cleaned up');
     }
 };
 
-// Set callback untuk real-time updates
-export const setItemsUpdateCallback = (callback) => {
-    if (typeof window !== 'undefined') {
-        window.itemsUpdateCallback = callback;
-    }
-};
+// Simple fetch dengan timeout yang reasonable
+const apiFetch = async (url, options = {}) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 detik timeout
 
-// Get semua items
-export const getAllItems = async () => {
     try {
-        console.log('📡 Fetching all items from backend...');
+        console.log(`📡 Fetching: ${url}`);
 
-        const response = await fetch(`${API_BASE_URL}/items`, {
-            method: 'GET',
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
             headers: {
                 'Content-Type': 'application/json',
+                ...options.headers,
             },
-            credentials: 'include'
+            credentials: 'include',
+            mode: 'cors'
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('❌ Server response not OK:', response.status, errorText);
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
 
-        const result = await response.json();
+        return await response.json();
+    } catch (error) {
+        clearTimeout(timeoutId);
+        console.error('❌ Fetch error:', error);
+
+        if (error.name === 'AbortError') {
+            throw new Error('Request timeout - server membutuhkan waktu terlalu lama untuk merespons');
+        }
+
+        throw error;
+    }
+};
+
+// Get semua items - OPTIMIZED
+export const getAllItems = async () => {
+    try {
+        console.log('📡 Fetching all items...');
+
+        const result = await apiFetch(`${API_BASE_URL}/items`, {
+            method: 'GET'
+        });
 
         if (result.success) {
             console.log(`✅ Successfully fetched ${result.data.length} items`);
@@ -168,38 +173,7 @@ export const getAllItems = async () => {
     }
 };
 
-// Get items by status
-export const getItemsByStatus = async (status) => {
-    try {
-        console.log(`📡 Fetching ${status} items from backend...`);
-
-        const response = await fetch(`${API_BASE_URL}/items/status/${status}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            credentials: 'include'
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-
-        if (result.success) {
-            console.log(`✅ Successfully fetched ${result.data.length} ${status} items`);
-            return result.data;
-        } else {
-            throw new Error(result.message || `Failed to fetch ${status} items`);
-        }
-    } catch (error) {
-        console.error(`❌ Error fetching ${status} items:`, error);
-        throw error;
-    }
-};
-
-// Tambah item baru
+// Tambah item baru - OPTIMIZED
 export const addItem = async (itemData) => {
     try {
         console.log('📝 Adding new item:', {
@@ -207,23 +181,10 @@ export const addItem = async (itemData) => {
             image: itemData.image ? `Base64 (${itemData.image.length} chars)` : 'No image'
         });
 
-        const response = await fetch(`${API_BASE_URL}/items`, {
+        const result = await apiFetch(`${API_BASE_URL}/items`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            credentials: 'include',
             body: JSON.stringify(itemData),
         });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            const errorMessage = errorData.message || `HTTP error! status: ${response.status}`;
-            console.error('❌ Server error response:', errorData);
-            throw new Error(errorMessage);
-        }
-
-        const result = await response.json();
 
         if (result.success) {
             console.log('✅ Item added successfully:', result.data);
@@ -237,29 +198,15 @@ export const addItem = async (itemData) => {
     }
 };
 
-// Update item
+// Update item - OPTIMIZED
 export const updateItem = async (itemId, itemData) => {
     try {
-        console.log('✏️ Updating item:', itemId, {
-            ...itemData,
-            image: itemData.image ? `Base64 (${itemData.image.length} chars)` : 'No image'
-        });
+        console.log('✏️ Updating item:', itemId);
 
-        const response = await fetch(`${API_BASE_URL}/items/${itemId}`, {
+        const result = await apiFetch(`${API_BASE_URL}/items/${itemId}`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            credentials: 'include',
             body: JSON.stringify(itemData),
         });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
 
         if (result.success) {
             console.log('✅ Item updated successfully:', result.data);
@@ -273,25 +220,14 @@ export const updateItem = async (itemId, itemData) => {
     }
 };
 
-// Delete item
+// Delete item - OPTIMIZED
 export const deleteItem = async (itemId) => {
     try {
         console.log('🗑️ Deleting item:', itemId);
 
-        const response = await fetch(`${API_BASE_URL}/items/${itemId}`, {
+        const result = await apiFetch(`${API_BASE_URL}/items/${itemId}`, {
             method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            credentials: 'include'
         });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
 
         if (result.success) {
             console.log('✅ Item deleted successfully');
@@ -305,28 +241,17 @@ export const deleteItem = async (itemId) => {
     }
 };
 
-// Send item (ubah status ke Sold Out)
+// Send item - OPTIMIZED
 export const sendItem = async (itemId, sentTo) => {
     try {
         console.log('📤 Sending item:', itemId, 'to user:', sentTo);
 
-        const response = await fetch(`${API_BASE_URL}/items/${itemId}/send`, {
+        const result = await apiFetch(`${API_BASE_URL}/items/${itemId}/send`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            credentials: 'include',
             body: JSON.stringify({
                 sentTo
             }),
         });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
 
         if (result.success) {
             console.log('✅ Item sent successfully:', result.data);
@@ -336,24 +261,6 @@ export const sendItem = async (itemId, sentTo) => {
         }
     } catch (error) {
         console.error('❌ Error sending item:', error);
-        throw error;
-    }
-};
-
-// Get item by ID
-export const getItemById = async (itemId) => {
-    try {
-        console.log('📡 Fetching item by ID:', itemId);
-        const allItems = await getAllItems();
-        const item = allItems.find(item => item._id === itemId);
-
-        if (!item) {
-            throw new Error('Item not found');
-        }
-
-        return item;
-    } catch (error) {
-        console.error('❌ Error fetching item by ID:', error);
         throw error;
     }
 };

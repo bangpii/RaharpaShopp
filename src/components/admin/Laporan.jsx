@@ -10,6 +10,7 @@ import {
   ArcElement
 } from 'chart.js'
 import { Bar, Doughnut } from 'react-chartjs-2'
+import { getLaporanData, getLaporanSummary } from '../../api/Api_laporan'
 
 // Register ChartJS components
 ChartJS.register(
@@ -23,7 +24,7 @@ ChartJS.register(
 )
 
 const Laporan = () => {
-  const [selectedMonth, setSelectedMonth] = useState('2025-11')
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
   const [showMonthPicker, setShowMonthPicker] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [showBarChartModal, setShowBarChartModal] = useState(false)
@@ -32,6 +33,18 @@ const Laporan = () => {
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [isMobile, setIsMobile] = useState(false)
   const [isSmallLaptop, setIsSmallLaptop] = useState(false)
+  const [laporanData, setLaporanData] = useState([])
+  const [totalKeseluruhan, setTotalKeseluruhan] = useState(0)
+  const [chartData, setChartData] = useState({
+    barChartData: [],
+    doughnutData: []
+  })
+  const [isLoading, setIsLoading] = useState(false)
+  const [summaryData, setSummaryData] = useState({
+    totalOrders: 0,
+    totalRevenue: 0,
+    avgOrderValue: 0
+  })
 
   // Check screen size
   useEffect(() => {
@@ -49,6 +62,72 @@ const Laporan = () => {
     }
   }, [])
 
+  // Di Laporan.jsx - TAMBAH useEffect untuk real-time updates
+useEffect(() => {
+  // Listen untuk real-time updates dari socket
+  const handleLaporanUpdate = () => {
+      console.log('🔄 Real-time laporan update received');
+      loadLaporanData(); // Refresh data laporan
+  };
+
+  // Tambah event listener
+  if (typeof window !== 'undefined') {
+      window.addEventListener('laporan-updated', handleLaporanUpdate);
+  }
+
+  return () => {
+      if (typeof window !== 'undefined') {
+          window.removeEventListener('laporan-updated', handleLaporanUpdate);
+      }
+  };
+}, []);
+
+  // Load laporan data
+  const loadLaporanData = async () => {
+    try {
+      setIsLoading(true)
+      console.log('🔄 Loading laporan data for:', selectedMonth)
+      
+      const [laporanResponse, summaryResponse] = await Promise.all([
+        getLaporanData(selectedMonth),
+        getLaporanSummary(selectedMonth)
+      ])
+
+      setLaporanData(laporanResponse.laporan || [])
+      setTotalKeseluruhan(laporanResponse.totalKeseluruhan || 0)
+      setChartData(laporanResponse.chartData || {
+        barChartData: [],
+        doughnutData: []
+      })
+      setSummaryData({
+        totalOrders: summaryResponse.totalOrders || 0,
+        totalRevenue: summaryResponse.totalRevenue || 0,
+        avgOrderValue: summaryResponse.avgOrderValue || 0
+      })
+
+      console.log('✅ Laporan data loaded successfully')
+    } catch (error) {
+      console.error('❌ Error loading laporan data:', error)
+      setLaporanData([])
+      setTotalKeseluruhan(0)
+      setChartData({
+        barChartData: [],
+        doughnutData: []
+      })
+      setSummaryData({
+        totalOrders: 0,
+        totalRevenue: 0,
+        avgOrderValue: 0
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadLaporanData()
+  }, [selectedMonth])
+
   const handleMonthClick = () => {
     setShowMonthPicker(!showMonthPicker)
   }
@@ -65,181 +144,13 @@ const Laporan = () => {
     return date.toLocaleDateString('id-ID', options)
   }
 
-  // Data laporan dengan struktur baru - termasuk metode order
-  const laporanData = [
-    {
-      id: "1",
-      name: "Baihaqie Ar Rafi",
-      code: "BRG001, BRG002",
-      quantity: 2,
-      price: "250.000, 150.000",
-      total: 400000,
-      status: "completed",
-      date: "2025-11-19",
-      time: "14:30",
-      image: "01,02",
-      method: "shoppie"
-    },
-    {
-      id: "2",
-      name: "Rahima Maisarah",
-      code: "BRG003",
-      quantity: 1,
-      price: "150.000",
-      total: 150000,
-      status: "completed",
-      date: "2025-11-19",
-      time: "10:15",
-      image: "03",
-      method: "manual"
-    },
-    {
-      id: "3",
-      name: "Gabriel Silitonga",
-      code: "BRG004, BRG005, BRG006",
-      quantity: 3,
-      price: "75.000, 80.000, 70.000",
-      total: 225000,
-      status: "completed",
-      date: "2025-11-18",
-      time: "16:45",
-      image: "04,05,01",
-      method: "shoppie"
-    },
-    {
-      id: "4",
-      name: "Jarjit Shings",
-      code: "BRG007",
-      quantity: 1,
-      price: "500.000",
-      total: 500000,
-      status: "completed",
-      date: "2025-11-19",
-      time: "09:20",
-      image: "02",
-      method: "manual"
-    },
-    {
-      id: "5",
-      name: "Sarah Johnson",
-      code: "BRG008, BRG009",
-      quantity: 2,
-      price: "125.000, 125.000",
-      total: 250000,
-      status: "completed",
-      date: "2025-11-17",
-      time: "11:30",
-      image: "03,04",
-      method: "shoppie"
-    },
-    {
-      id: "6",
-      name: "Michael Chen",
-      code: "BRG010",
-      quantity: 1,
-      price: "300.000",
-      total: 300000,
-      status: "completed",
-      date: "2025-11-16",
-      time: "13:15",
-      image: "05",
-      method: "manual"
-    },
-    {
-      id: "7",
-      name: "Lisa Anderson",
-      code: "BRG011, BRG012, BRG013, BRG014",
-      quantity: 4,
-      price: "50.000, 55.000, 45.000, 50.000",
-      total: 200000,
-      status: "completed",
-      date: "2025-11-15",
-      time: "15:40",
-      image: "01,02,03,04",
-      method: "shoppie"
-    },
-    {
-      id: "8",
-      name: "Tukul Nono",
-      code: "BRG015",
-      quantity: 1,
-      price: "750.000",
-      total: 750000,
-      status: "completed",
-      date: "2025-11-15",
-      time: "08:50",
-      image: "05",
-      method: "manual"
-    },
-    // Data untuk bulan lain
-    {
-      id: "9",
-      name: "Andi Wijaya",
-      code: "BRG016",
-      quantity: 1,
-      price: "200.000",
-      total: 200000,
-      status: "completed",
-      date: "2025-10-20",
-      time: "10:30",
-      image: "01",
-      method: "shoppie"
-    },
-    {
-      id: "10",
-      name: "Siti Rahayu",
-      code: "BRG017, BRG018",
-      quantity: 2,
-      price: "175.000, 125.000",
-      total: 300000,
-      status: "completed",
-      date: "2025-10-15",
-      time: "14:20",
-      image: "02,03",
-      method: "manual"
-    }
-  ]
-
-  // Data simulasi untuk grafik berdasarkan bulan
-  const getSimulatedChartData = (month) => {
-    const dataMap = {
-      '2025-11': {
-        barChartData: [12000, 19000, 15000, 25000, 22000, 30000, 28000, 32000, 30000, 35000, 40000, 45000],
-        doughnutData: [65, 35], // Manual: 65%, Shoppie: 35%
-      },
-      '2025-10': {
-        barChartData: [10000, 15000, 12000, 20000, 18000, 25000, 22000, 28000, 26000, 30000, 32000, 38000],
-        doughnutData: [60, 40], // Manual: 60%, Shoppie: 40%
-      },
-      '2025-09': {
-        barChartData: [15000, 22000, 18000, 28000, 25000, 35000, 32000, 38000, 35000, 42000, 45000, 50000],
-        doughnutData: [70, 30], // Manual: 70%, Shoppie: 30%
-      },
-      '2025-08': {
-        barChartData: [8000, 12000, 10000, 18000, 15000, 22000, 20000, 25000, 23000, 28000, 30000, 35000],
-        doughnutData: [55, 45], // Manual: 55%, Shoppie: 45%
-      },
-      '2025-07': {
-        barChartData: [9000, 14000, 11000, 19000, 17000, 24000, 21000, 27000, 25000, 31000, 33000, 38000],
-        doughnutData: [58, 42], // Manual: 58%, Shoppie: 42%
-      }
-    }
-    
-    return dataMap[month] || {
-      barChartData: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      doughnutData: [0, 0],
-    }
-  }
-
-  const simulatedChartData = getSimulatedChartData(selectedMonth)
-
-  // Filter data berdasarkan bulan dan search term
+  // Filter data berdasarkan search term
   const filteredData = laporanData.filter(item => {
-    const itemMonth = item.date.substring(0, 7) // Ambil YYYY-MM dari date
-    return (item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.id.includes(searchTerm) ||
-    item.code.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    itemMonth === selectedMonth
+    return (
+      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.id.includes(searchTerm) ||
+      item.code.toLowerCase().includes(searchTerm.toLowerCase())
+    )
   })
 
   // Buat ID increment
@@ -308,8 +219,8 @@ const Laporan = () => {
         {images.map((img, index) => (
           <div key={index} className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden">
             <img 
-              src={`/${img.trim()}.jpeg`} 
-              alt={`Gambar ${img.trim()}`}
+              src={img !== 'default' ? img : '/01.jpeg'} 
+              alt={`Gambar ${index + 1}`}
               className="w-full h-full object-cover"
               onError={(e) => {
                 e.target.style.display = 'none'
@@ -331,13 +242,13 @@ const Laporan = () => {
     setShowOrderDetail(true)
   }
 
-  // Data untuk bar chart - SAMA PERSIS seperti di Dashboard
+  // Data untuk bar chart
   const barChartData = {
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    labels: Array.from({length: chartData.barChartData.length || 31}, (_, i) => (i + 1).toString()),
     datasets: [
       {
-        label: 'Sales',
-        data: simulatedChartData.barChartData,
+        label: 'Sales per Hari',
+        data: chartData.barChartData,
         backgroundColor: 'rgba(180, 83, 9, 0.8)',
         borderColor: 'rgba(180, 83, 9, 1)',
         borderWidth: 2,
@@ -363,21 +274,30 @@ const Laporan = () => {
         grid: {
           color: 'rgba(0, 0, 0, 0.1)',
         },
+        ticks: {
+          callback: function(value) {
+            return 'Rp ' + value.toLocaleString('id-ID');
+          }
+        }
       },
       x: {
         grid: {
           display: false,
         },
+        title: {
+          display: true,
+          text: 'Hari dalam Bulan'
+        }
       },
     },
   }
 
-  // Data untuk doughnut chart - SAMA PERSIS seperti di Dashboard
+  // Data untuk doughnut chart
   const doughnutChartData = {
     labels: ['Manual', 'Shoppie'],
     datasets: [
       {
-        data: simulatedChartData.doughnutData,
+        data: chartData.doughnutData,
         backgroundColor: [
           'rgba(180, 83, 9, 0.8)', // Coklat tua untuk Manual
           'rgba(217, 119, 6, 0.8)', // Coklat medium untuk Shoppie
@@ -408,6 +328,11 @@ const Laporan = () => {
   // Handle print
   const handlePrint = () => {
     window.print()
+  }
+
+  // Handle refresh
+  const handleRefresh = () => {
+    loadLaporanData()
   }
 
   return (
@@ -564,6 +489,19 @@ const Laporan = () => {
           </div>
           
           <div className="flex items-center gap-3 mt-3 xs:mt-4 md:mt-0">
+            {/* Refresh Button */}
+            <button 
+              onClick={handleRefresh}
+              className="bg-gradient-to-br from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 
+                         text-white rounded-xl px-4 py-2.5 shadow-[0_4px_12px_rgba(34,197,94,0.3)] 
+                         hover:shadow-[0_6px_20px_rgba(34,197,94,0.4)] transition-all duration-200 
+                         flex items-center gap-2 group print:hidden"
+              disabled={isLoading}
+            >
+              <i className={`bx ${isLoading ? 'bx-loader-circle bx-spin' : 'bx-refresh'} text-lg`}></i>
+              <span className="text-sm font-medium">{isLoading ? 'Loading...' : 'Refresh'}</span>
+            </button>
+
             {/* Print Button */}
             <button 
               onClick={handlePrint}
@@ -618,6 +556,25 @@ const Laporan = () => {
         </div>
       </div>
 
+      {/* Total Keseluruhan Section */}
+      <div className="px-3 xs:px-4 sm:px-6 no-print">
+        <div className="bg-gradient-to-br from-amber-600 to-amber-700 rounded-2xl p-6 text-white 
+                       shadow-[0_10px_30px_rgba(186,118,48,0.3)]">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg xs:text-xl font-bold mb-2">Total Keseluruhan Bulan {formatMonth(selectedMonth)}</h2>
+              <p className="text-amber-100 text-sm">Seluruh pendapatan dari order yang completed</p>
+            </div>
+            <div className="text-right mt-4 md:mt-0">
+              <div className="text-2xl xs:text-3xl font-bold">{formatCurrency(totalKeseluruhan)}</div>
+              <div className="text-amber-100 text-sm mt-1">
+                {summaryData.totalOrders} Order • Avg: {formatCurrency(summaryData.avgOrderValue)}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Search dan Content */}
       <div className="bg-white rounded-2xl mx-3 xs:mx-4 sm:mx-6 p-4 xs:p-5 sm:p-6 lg:p-8 
                      shadow-[0_10px_30px_rgba(186,118,48,0.1),0_4px_12px_rgba(186,118,48,0.05),inset_0_1px_0_rgba(255,255,255,0.8)]
@@ -655,20 +612,10 @@ const Laporan = () => {
                 <thead>
                   <tr className="sticky top-0 print:static">
                     <th className="text-left py-4 px-4 text-white font-semibold text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600 rounded-tl-2xl print:bg-amber-600 print:text-black">
-                      <div className="flex items-center gap-1">
-                        No
-                        <button className="text-amber-200 hover:text-white transition-colors no-print">
-                          <i className='bx bx-sort text-xs'></i>
-                        </button>
-                      </div>
+                      No
                     </th>
                     <th className="text-left py-4 px-4 text-white font-semibold text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600 print:bg-amber-600 print:text-black">
-                      <div className="flex items-center gap-1">
-                        Nama User
-                        <button className="text-amber-200 hover:text-white transition-colors no-print">
-                          <i className='bx bx-sort text-xs'></i>
-                        </button>
-                      </div>
+                      Nama User
                     </th>
                     <th className="text-left py-4 px-4 text-white font-semibold text-sm whitespace-nowrap bg-gradient-to-br from-amber-600 to-amber-600 print:bg-amber-600 print:text-black">
                       Code Barang
@@ -899,12 +846,21 @@ const Laporan = () => {
                 ))}
               </div>
               
-              {dataWithIncrementId.length === 0 && (
+              {dataWithIncrementId.length === 0 && !isLoading && (
                 <div className="py-12 text-center">
                   <div className="flex flex-col items-center justify-center text-gray-400">
                     <i className='bx bx-file text-5xl mb-3'></i>
                     <p className="text-base font-medium">Tidak ada data laporan yang ditemukan</p>
                     <p className="text-sm mt-1">Coba ubah kata kunci pencarian atau bulan</p>
+                  </div>
+                </div>
+              )}
+
+              {isLoading && (
+                <div className="py-12 text-center">
+                  <div className="flex flex-col items-center justify-center text-gray-400">
+                    <div className="w-8 h-8 border-2 border-amber-600 border-t-transparent rounded-full animate-spin mb-3"></div>
+                    <p className="text-base font-medium">Memuat data laporan...</p>
                   </div>
                 </div>
               )}

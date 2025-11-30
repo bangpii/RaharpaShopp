@@ -191,15 +191,17 @@ const Orders = ({ onNavigate }) => {
   }
 
   // Buka form edit
-  const openEditForm = (order) => {
-    setSelectedOrder(order)
-    setEditOrderData({
+  // Di dalam openEditForm function
+const openEditForm = (order) => {
+  setSelectedOrder(order);
+  setEditOrderData({
       locationLink: order.locationLink || '',
-      method: order.method || 'shoppie'
-    })
-    setShowEditForm(true)
-    setShowOrderDetail(false)
-  }
+      method: order.method || 'shoppie',
+      status: order.status || 'pending' // TAMBAH INI
+  });
+  setShowEditForm(true);
+  setShowOrderDetail(false);
+};
 
   // Buka konfirmasi hapus
   const openDeleteConfirm = (order) => {
@@ -336,65 +338,63 @@ const Orders = ({ onNavigate }) => {
             </div>
             
             <div className="space-y-4">
-              {/* Link Lokasi */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Link Lokasi Pengiriman
-                </label>
-                <input
-                  type="text"
-                  value={editOrderData.locationLink}
-                  onChange={(e) => setEditOrderData({...editOrderData, locationLink: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl 
-                           focus:ring-2 focus:ring-amber-500 focus:border-transparent
-                           bg-gray-50 hover:bg-white transition-colors duration-200
-                           text-sm placeholder-gray-400"
-                  placeholder="https://maps.google.com/..."
-                />
-                {editOrderData.locationLink && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    * Link akan terbuka di tab baru saat diklik
-                  </p>
-                )}
-              </div>
+ {/* Status Order */}
+<div>
+    <label className="block text-sm font-medium text-gray-700 mb-2">
+        Status Order
+    </label>
+    <select
+        value={editOrderData.status}
+        onChange={(e) => setEditOrderData({...editOrderData, status: e.target.value})}
+        className="w-full px-4 py-3 border border-gray-200 rounded-xl 
+                 focus:ring-2 focus:ring-amber-500 focus:border-transparent
+                 bg-gray-50 hover:bg-white transition-colors duration-200
+                 text-sm"
+    >
+        <option value="pending">Pending</option>
+        <option value="processing">Processing</option>
+        <option value="completed">Completed</option>
+        <option value="cancelled">Cancelled</option>
+    </select>
+</div>
 
-              {/* Metode Order */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Metode Order
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setEditOrderData({...editOrderData, method: 'shoppie'})}
-                    className={`p-3 border rounded-xl transition-all duration-200 ${
-                      editOrderData.method === 'shoppie'
-                        ? 'bg-purple-50 border-purple-300 text-purple-700 shadow-sm'
-                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <i className='bx bx-store text-lg'></i>
-                      <span className="font-medium text-sm">Shoppie</span>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditOrderData({...editOrderData, method: 'manual'})}
-                    className={`p-3 border rounded-xl transition-all duration-200 ${
-                      editOrderData.method === 'manual'
-                        ? 'bg-orange-50 border-orange-300 text-orange-700 shadow-sm'
-                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <i className='bx bx-edit text-lg'></i>
-                      <span className="font-medium text-sm">Manual</span>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            </div>
+  {/* Metode Order */}
+  <div>
+    <label className="block text-sm font-medium text-gray-700 mb-2">
+      Metode Order
+    </label>
+    <div className="grid grid-cols-2 gap-3">
+      <button
+        type="button"
+        onClick={() => setEditOrderData({...editOrderData, method: 'shoppie'})}
+        className={`p-3 border rounded-xl transition-all duration-200 ${
+          editOrderData.method === 'shoppie'
+            ? 'bg-purple-50 border-purple-300 text-purple-700 shadow-sm'
+            : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <i className='bx bx-store text-lg'></i>
+          <span className="font-medium text-sm">Shoppie</span>
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={() => setEditOrderData({...editOrderData, method: 'manual'})}
+        className={`p-3 border rounded-xl transition-all duration-200 ${
+          editOrderData.method === 'manual'
+            ? 'bg-orange-50 border-orange-300 text-orange-700 shadow-sm'
+            : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <i className='bx bx-edit text-lg'></i>
+          <span className="font-medium text-sm">Manual</span>
+        </div>
+      </button>
+    </div>
+  </div>
+</div>
             
             <div className="flex gap-3 mt-8">
               <button

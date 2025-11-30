@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react'
+// Item.jsx - FIXED VERSION WITH PROPER REAL-TIME UPDATES
+import React, { useState, useEffect, useCallback } from 'react'
 import { 
   getAllItems, 
   addItem, 
@@ -9,9 +10,7 @@ import {
   setItemsUpdateCallback
 } from '../../api/Api_Item'  
 import { getAllUsers } from '../../api/Api_AkunUsers'
-import { 
-  createOrder 
-} from '../../api/Api_orders'
+import { createOrder } from '../../api/Api_orders'
 
 const Item = ({ onNavigate }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
@@ -36,24 +35,87 @@ const Item = ({ onNavigate }) => {
   const [isLoading, setIsLoading] = useState(false)
   const [formLoading, setFormLoading] = useState(false)
 
-  // Initialize socket dan load data
+  // Load items data dengan error handling
+  const loadItemsData = useCallback(async () => {
+    try {
+      console.log('📥 Loading items data...')
+      const items = await getAllItems()
+      setAllItems(Array.isArray(items) ? items : [])
+    } catch (error) {
+      console.error('❌ Failed to load items data:', error)
+      
+      if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+        console.log('🌐 Network error - server mungkin sedang offline atau ada masalah CORS')
+      } else if (error.message.includes('timeout')) {
+        console.log('⏰ Server timeout - server membutuhkan waktu lebih lama untuk merespons')
+      }
+      
+      setAllItems([])
+    }
+  }, [])
+
+  const loadOnlineUsers = useCallback(async () => {
+    try {
+      const users = await getAllUsers()
+      const onlineUsers = Array.isArray(users) 
+        ? users.filter(user => user.loginstatus === true)
+        : []
+      setOnlineUsers(onlineUsers)
+    } catch (error) {
+      console.error('❌ Failed to load online users:', error)
+      setOnlineUsers([])
+    }
+  }, [])
+
+  // OPTIMIZED: Real-time callback dengan useCallback - FIXED
+  const handleRealTimeUpdate = useCallback((data) => {
+    console.log('🔄 Real-time update received:', data)
+    
+    if (data.action === 'added') {
+      // Hanya tambah item baru jika belum ada (menghindari duplikat)
+      setAllItems(prev => {
+        const existingItem = prev.find(item => item._id === data.item._id)
+        if (existingItem) {
+          console.log('⚠️ Item already exists, updating instead...')
+          return prev.map(item => item._id === data.item._id ? data.item : item)
+        }
+        
+        // Hapus temporary item jika ada
+        const filteredPrev = prev.filter(item => !item._id.startsWith('temp_'))
+        return [data.item, ...filteredPrev]
+      })
+    } else if (data.action === 'updated') {
+      // Update specific item
+      setAllItems(prev => prev.map(item => 
+        item._id === data.item._id ? data.item : item
+      ))
+    } else if (data.action === 'sent') {
+      // Update item yang dikirim
+      setAllItems(prev => prev.map(item => 
+        item._id === data.item._id ? data.item : item
+      ))
+    } else if (data.action === 'deleted') {
+      // Remove deleted item
+      setAllItems(prev => prev.filter(item => item._id !== data.itemId))
+    } else if (Array.isArray(data)) {
+      // Full items array
+      setAllItems(data)
+    }
+  }, [])
+
+  // Initialize socket dan load data - OPTIMIZED
   useEffect(() => {
     const initializeData = async () => {
       try {
         setIsLoading(true)
         
-        // Initialize socket
         initializeItemsSocket()
+        setItemsUpdateCallback(handleRealTimeUpdate)
         
-        // Set callback untuk real-time updates - OPTIMIZED: langsung update state
-        setItemsUpdateCallback((items) => {
-          console.log('🔄 Real-time items update received in component:', items)
-          setAllItems(Array.isArray(items) ? items : [])
-        })
-        
-        // Load initial data
-        await loadItemsData()
-        await loadOnlineUsers()
+        await Promise.all([
+          loadItemsData(),
+          loadOnlineUsers()
+        ])
         
       } catch (error) {
         console.error('❌ Error initializing data:', error)
@@ -65,37 +127,330 @@ const Item = ({ onNavigate }) => {
 
     initializeData()
 
-    // Cleanup on unmount
     return () => {
       cleanupItemsSocket()
       setItemsUpdateCallback(null)
     }
-  }, [])
+  }, [loadItemsData, loadOnlineUsers, handleRealTimeUpdate])
 
-  // Load items data - OPTIMIZED: langsung set state tanpa delay
-  const loadItemsData = async () => {
+  // FUNGSI KOMPRESI GAMBAR
+  const compressImage = async (file, maxSizeKB = 500) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = (event) => {
+        const img = new Image()
+        img.src = event.target.result
+        
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          const ctx = canvas.getContext('2d')
+          
+          // Set maksimum dimension
+          const MAX_WIDTH = 800
+          const MAX_HEIGHT = 800
+          let width = img.width
+          let height = img.height
+          
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width
+              width = MAX_WIDTH
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height
+              height = MAX_HEIGHT
+            }
+          }
+          
+          canvas.width = width
+          canvas.height = height
+          
+          ctx.drawImage(img, 0, 0, width, height)
+          
+          // Compress dengan quality yang disesuaikan
+          let quality = 0.8
+          let compressedDataUrl = canvas.toDataURL('image/jpeg', quality)
+          
+          // Check size dan turunkan quality jika masih terlalu besar
+          const checkSize = () => {
+            const base64Length = compressedDataUrl.length - (compressedDataUrl.indexOf(',') + 1)
+            const padding = compressedDataUrl.endsWith('==') ? 2 : compressedDataUrl.endsWith('=') ? 1 : 0
+            const fileSizeKB = (base64Length * 0.75 - padding) / 1024
+            
+            if (fileSizeKB > maxSizeKB && quality > 0.1) {
+              quality -= 0.1
+              compressedDataUrl = canvas.toDataURL('image/jpeg', quality)
+              checkSize()
+            } else {
+              resolve(compressedDataUrl)
+            }
+          }
+          
+          checkSize()
+        }
+        
+        img.onerror = error => reject(error)
+      }
+      reader.onerror = error => reject(error)
+    })
+  }
+
+  // Convert image to base64 dengan kompresi
+  const convertImageToBase64 = async (file) => {
     try {
-      console.log('📥 Loading items data from backend...')
-      const items = await getAllItems()
-      setAllItems(Array.isArray(items) ? items : [])
-      console.log('✅ Items data loaded successfully:', Array.isArray(items) ? items.length : 0)
+      // Check file size terlebih dahulu
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error('Ukuran file maksimal 5MB')
+      }
+      
+      if (!file.type.startsWith('image/')) {
+        throw new Error('File harus berupa gambar')
+      }
+      
+      console.log('📷 Original file size:', (file.size / 1024).toFixed(2), 'KB')
+      
+      // Kompres gambar menjadi maksimal 500KB
+      const compressedImage = await compressImage(file, 500)
+      
+      console.log('✅ Image compressed successfully')
+      return compressedImage
     } catch (error) {
-      console.error('❌ Failed to load items data:', error)
-      setAllItems([])
+      console.error('❌ Error compressing image:', error)
+      throw error
     }
   }
 
-  // Load online users (yang sedang login)
-  const loadOnlineUsers = async () => {
+  // FIXED: Handle Tambah Data - HAPUS IMMEDIATE UI UPDATE
+  const handleAddItem = async () => {
+    if (newItemCode.trim() === '') {
+      alert('Code item harus diisi');
+      return;
+    }
+
+    if (newItemPrice === '' || parseInt(newItemPrice) <= 0) {
+      alert('Harga harus diisi dan lebih dari 0');
+      return;
+    }
+    
     try {
-      const users = await getAllUsers()
-      const onlineUsers = Array.isArray(users) 
-        ? users.filter(user => user.loginstatus === true)
-        : []
-      setOnlineUsers(onlineUsers)
+      setFormLoading(true);
+      
+      // HAPUS: Tidak perlu immediate UI update karena socket akan handle
+      // Biarkan socket real-time update yang menangani penambahan data
+      
+      // Convert image file to base64 dengan kompresi
+      let imageBase64 = ''
+      if (newItemImage) {
+        console.log('🔄 Compressing image...')
+        imageBase64 = await convertImageToBase64(newItemImage)
+        console.log('✅ Image compressed, size:', (imageBase64.length / 1024).toFixed(2), 'KB (base64)')
+      }
+      
+      const newItemData = {
+        code: newItemCode.trim(),
+        price: parseInt(newItemPrice),
+        image: imageBase64
+      }
+      
+      console.log('📤 Sending item data...');
+      
+      // Panggil API - socket akan handle real-time update
+      await addItem(newItemData);
+      
+      // Reset form dan tutup popup
+      clearAddForm();
+      setShowAddForm(false);
+      
+      // Tampilkan pesan sukses
+      console.log('✅ Item berhasil ditambahkan, menunggu real-time update...')
+      
     } catch (error) {
-      console.error('❌ Failed to load online users:', error)
-      setOnlineUsers([])
+      console.error('❌ Error adding item:', error);
+      
+      alert('Gagal menambahkan item: ' + (error.message || 'Unknown error'));
+    } finally {
+      setFormLoading(false);
+    }
+  }
+
+  // FIXED: Handle Edit Data - HAPUS IMMEDIATE UI UPDATE
+  const handleEditItem = async () => {
+    if (!selectedItem) {
+      alert('Item tidak ditemukan')
+      return
+    }
+
+    if (editItemCode.trim() === '') {
+      alert('Code item harus diisi')
+      return
+    }
+
+    if (editItemPrice === '' || parseInt(editItemPrice) <= 0) {
+      alert('Harga harus diisi dan lebih dari 0')
+      return
+    }
+    
+    try {
+      setFormLoading(true)
+      
+      // HAPUS: Tidak perlu immediate UI update karena socket akan handle
+      // Biarkan socket real-time update yang menangani update data
+      
+      // Convert image file to base64 dengan kompresi jika ada gambar baru
+      let imageBase64 = selectedItem.image
+      if (editItemImage) {
+        console.log('🔄 Compressing image for edit...')
+        imageBase64 = await convertImageToBase64(editItemImage)
+        console.log('✅ Image compressed, size:', (imageBase64.length / 1024).toFixed(2), 'KB (base64)')
+      }
+      
+      const updatedItemData = {
+        code: editItemCode.trim(),
+        price: parseInt(editItemPrice),
+        image: imageBase64
+      }
+      
+      // Panggil API - socket akan handle real-time update
+      await updateItem(selectedItem._id, updatedItemData)
+      
+      // Reset form dan tutup popup
+      clearEditForm()
+      setShowEditForm(false)
+      
+      // Tampilkan pesan sukses
+      console.log('✅ Item berhasil diupdate, menunggu real-time update...')
+      
+    } catch (error) {
+      console.error('❌ Error updating item:', error)
+      
+      alert('Gagal mengupdate item: ' + (error.message || 'Unknown error'))
+    } finally {
+      setFormLoading(false)
+    }
+  }
+
+  // Handle image upload untuk form tambah dengan validasi
+  const handleAddImageUpload = async (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      // Validasi ukuran file (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Ukuran file maksimal 5MB')
+        return
+      }
+      
+      // Validasi tipe file
+      if (!file.type.startsWith('image/')) {
+        alert('File harus berupa gambar')
+        return
+      }
+      
+      setNewItemImage(file)
+      
+      try {
+        // Buat preview dengan kompresi ringan untuk preview
+        const previewCompressed = await compressImage(file, 100) // 100KB untuk preview
+        setNewItemPreview(previewCompressed)
+      } catch (error) {
+        console.error('Error creating preview:', error)
+        // Fallback ke URL.createObjectURL jika kompresi gagal
+        const previewUrl = URL.createObjectURL(file)
+        setNewItemPreview(previewUrl)
+      }
+    }
+  }
+
+  // Handle image upload untuk form edit dengan validasi
+  const handleEditImageUpload = async (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      // Validasi ukuran file (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Ukuran file maksimal 5MB')
+        return
+      }
+      
+      // Validasi tipe file
+      if (!file.type.startsWith('image/')) {
+        alert('File harus berupa gambar')
+        return
+      }
+      
+      setEditItemImage(file)
+      
+      try {
+        // Buat preview dengan kompresi ringan untuk preview
+        const previewCompressed = await compressImage(file, 100) // 100KB untuk preview
+        setEditItemPreview(previewCompressed)
+      } catch (error) {
+        console.error('Error creating preview:', error)
+        // Fallback ke URL.createObjectURL jika kompresi gagal
+        const previewUrl = URL.createObjectURL(file)
+        setEditItemPreview(previewUrl)
+      }
+    }
+  }
+
+  // FIXED: Handle Hapus Data - HAPUS IMMEDIATE UI UPDATE
+  const handleDeleteItem = async () => {
+    if (!selectedItem) return
+    
+    try {
+      setFormLoading(true)
+      
+      // HAPUS: Tidak perlu immediate UI update karena socket akan handle
+      // Biarkan socket real-time update yang menangani penghapusan data
+      
+      // Panggil API
+      await deleteItem(selectedItem._id)
+      
+      setShowDeleteConfirm(false)
+      setSelectedItem(null)
+      
+      // Tampilkan pesan sukses
+      console.log('✅ Item berhasil dihapus, menunggu real-time update...')
+      
+    } catch (error) {
+      console.error('❌ Error deleting item:', error)
+      
+      alert('Gagal menghapus item: ' + (error.message || 'Unknown error'))
+    } finally {
+      setFormLoading(false)
+    }
+  }
+
+  // Handle Send Item - FIXED: HAPUS IMMEDIATE UI UPDATE
+  const handleSendItem = async (userId) => {
+    if (!selectedItem) return
+    
+    try {
+      setFormLoading(true)
+      
+      // Buat order baru
+      const orderData = {
+          userId: userId,
+          itemIds: [selectedItem._id],
+          locationLink: '',
+          method: 'shoppie'
+      }
+      
+      // Panggil API untuk create order
+      await createOrder(orderData)
+      
+      setShowSendConfirm(false)
+      setShowUserList(false)
+      setSelectedItem(null)
+      
+      // Show success message
+      console.log('✅ Item berhasil dikirim dan order dibuat')
+      
+    } catch (error) {
+      console.error('❌ Error sending item:', error)
+      alert('Gagal mengirim item: ' + (error.message || 'Unknown error'))
+    } finally {
+      setFormLoading(false)
     }
   }
 
@@ -152,50 +507,6 @@ const Item = ({ onNavigate }) => {
     item._id.includes(searchTerm)
   )
 
-  // Handle image upload untuk form tambah
-  const handleAddImageUpload = (e) => {
-    const file = e.target.files[0]
-    if (file) {
-      // Validasi ukuran file (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        alert('Ukuran file maksimal 5MB')
-        return
-      }
-      
-      // Validasi tipe file
-      if (!file.type.startsWith('image/')) {
-        alert('File harus berupa gambar')
-        return
-      }
-      
-      setNewItemImage(file)
-      const previewUrl = URL.createObjectURL(file)
-      setNewItemPreview(previewUrl)
-    }
-  }
-
-  // Handle image upload untuk form edit
-  const handleEditImageUpload = (e) => {
-    const file = e.target.files[0]
-    if (file) {
-      // Validasi ukuran file (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        alert('Ukuran file maksimal 5MB')
-        return
-      }
-      
-      // Validasi tipe file
-      if (!file.type.startsWith('image/')) {
-        alert('File harus berupa gambar')
-        return
-      }
-      
-      setEditItemImage(file)
-      const previewUrl = URL.createObjectURL(file)
-      setEditItemPreview(previewUrl)
-    }
-  }
-
   // Clear add form
   const clearAddForm = () => {
     setNewItemCode('')
@@ -211,172 +522,6 @@ const Item = ({ onNavigate }) => {
     setEditItemImage(null)
     setEditItemPreview('')
     setSelectedItem(null)
-  }
-
-  // Handle Tambah Data - OPTIMIZED: langsung update tanpa delay
-  const handleAddItem = async () => {
-    if (newItemCode.trim() === '') {
-      alert('Code item harus diisi');
-      return;
-    }
-
-    if (newItemPrice === '' || parseInt(newItemPrice) <= 0) {
-      alert('Harga harus diisi dan lebih dari 0');
-      return;
-    }
-    
-    try {
-      setFormLoading(true);
-      
-      // Convert image file to base64 untuk dikirim ke backend
-      let imageBase64 = ''
-      if (newItemImage) {
-          imageBase64 = await convertImageToBase64(newItemImage)
-      }
-      
-      const newItemData = {
-          code: newItemCode.trim(),
-          price: parseInt(newItemPrice),
-          image: imageBase64
-      }
-      
-      console.log('📤 Sending item data:', { 
-          ...newItemData, 
-          image: imageBase64 ? `Base64 (${imageBase64.length} chars)` : 'No image' 
-      });
-      
-      // Langsung panggil API tanpa delay - socket akan handle real-time update
-      await addItem(newItemData);
-      
-      // OPTIMIZED: Tidak perlu loadItemsData() lagi karena socket sudah handle real-time update
-      
-      // Reset form dan tutup popup
-      clearAddForm();
-      setShowAddForm(false);
-      
-    } catch (error) {
-      console.error('❌ Error adding item:', error);
-      alert('Gagal menambahkan item: ' + (error.message || 'Unknown error'));
-    } finally {
-      setFormLoading(false);
-    }
-  }
-
-  // Handle Edit Data - OPTIMIZED: langsung update tanpa delay
-  const handleEditItem = async () => {
-    if (!selectedItem) {
-      alert('Item tidak ditemukan')
-      return
-    }
-
-    if (editItemCode.trim() === '') {
-      alert('Code item harus diisi')
-      return
-    }
-
-    if (editItemPrice === '' || parseInt(editItemPrice) <= 0) {
-      alert('Harga harus diisi dan lebih dari 0')
-      return
-    }
-    
-    try {
-      setFormLoading(true)
-      
-      // Convert image file to base64 jika ada gambar baru
-      let imageBase64 = selectedItem.image // Gunakan gambar lama sebagai default
-      if (editItemImage) {
-        imageBase64 = await convertImageToBase64(editItemImage)
-      }
-      
-      const updatedItemData = {
-        code: editItemCode.trim(),
-        price: parseInt(editItemPrice),
-        image: imageBase64
-      }
-      
-      // Langsung panggil API tanpa delay - socket akan handle real-time update
-      await updateItem(selectedItem._id, updatedItemData)
-      
-      // OPTIMIZED: Tidak perlu loadItemsData() lagi karena socket sudah handle real-time update
-      
-      // Reset form dan tutup popup
-      clearEditForm()
-      setShowEditForm(false)
-      
-    } catch (error) {
-      console.error('❌ Error updating item:', error)
-      alert('Gagal mengupdate item: ' + (error.message || 'Unknown error'))
-    } finally {
-      setFormLoading(false)
-    }
-  }
-
-  // Convert image to base64
-  const convertImageToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.readAsDataURL(file)
-      reader.onload = () => resolve(reader.result)
-      reader.onerror = error => reject(error)
-    })
-  }
-
-  // Handle Hapus Data - OPTIMIZED: langsung update tanpa delay
-  const handleDeleteItem = async () => {
-    if (!selectedItem) return
-    
-    try {
-      setFormLoading(true)
-      
-      // Langsung panggil API tanpa delay - socket akan handle real-time update
-      await deleteItem(selectedItem._id)
-      
-      // OPTIMIZED: Tidak perlu loadItemsData() lagi karena socket sudah handle real-time update
-      
-      setShowDeleteConfirm(false)
-      setSelectedItem(null)
-      
-    } catch (error) {
-      console.error('❌ Error deleting item:', error)
-      alert('Gagal menghapus item: ' + (error.message || 'Unknown error'))
-    } finally {
-      setFormLoading(false)
-    }
-  }
-
-  // Handle Send Item - OPTIMIZED: langsung update tanpa delay
-  const handleSendItem = async (userId) => {
-    if (!selectedItem) return
-    
-    try {
-      setFormLoading(true)
-      
-      // Buat order baru
-      const orderData = {
-          userId: userId,
-          itemIds: [selectedItem._id],
-          locationLink: '', // Bisa dikosongkan dulu, nanti bisa diedit di orders
-          method: 'shoppie'
-      }
-      
-      // Panggil API untuk create order
-      await createOrder(orderData)
-      
-      // OPTIMIZED: Tidak perlu loadItemsData() lagi karena socket sudah handle real-time update
-      
-      setShowSendConfirm(false)
-      setShowUserList(false)
-      setSelectedItem(null)
-      
-      // Show success message
-      console.log('✅ Item berhasil dikirim dan order dibuat')
-      
-    } catch (error) {
-      console.error('❌ Error sending item:', error)
-      alert('Gagal mengirim item: ' + (error.message || 'Unknown error'))
-    } finally {
-      setFormLoading(false)
-    }
   }
 
   // Format price
@@ -483,7 +628,7 @@ const Item = ({ onNavigate }) => {
     }
   }
 
-  // Reset form state ketika modal ditutup - OPTIMIZED: langsung tutup tanpa validasi
+  // Reset form state ketika modal ditutup
   const handleCloseAddForm = () => {
     setShowAddForm(false)
     clearAddForm()
@@ -579,7 +724,7 @@ const Item = ({ onNavigate }) => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Gambar
+                  Gambar (Otomatis dikompresi ke 500KB)
                 </label>
                 <div className="space-y-3">
                   {/* Image Preview */}
@@ -619,7 +764,7 @@ const Item = ({ onNavigate }) => {
                       <div className="flex items-center space-x-2">
                         <i className='bx bx-check text-green-600'></i>
                         <span className="text-xs text-green-800 font-medium">
-                          {newItemImage.name}
+                          {newItemImage.name} ({(newItemImage.size / 1024 / 1024).toFixed(2)} MB)
                         </span>
                       </div>
                       <button 
@@ -721,7 +866,7 @@ const Item = ({ onNavigate }) => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Gambar
+                  Gambar (Otomatis dikompresi ke 500KB)
                 </label>
                 <div className="space-y-3">
                   {/* Current Image */}
@@ -774,7 +919,7 @@ const Item = ({ onNavigate }) => {
                       <div className="flex items-center space-x-2">
                         <i className='bx bx-check text-green-600'></i>
                         <span className="text-xs text-green-800 font-medium">
-                          {editItemImage.name}
+                          {editItemImage.name} ({(editItemImage.size / 1024 / 1024).toFixed(2)} MB)
                         </span>
                       </div>
                       <button 
